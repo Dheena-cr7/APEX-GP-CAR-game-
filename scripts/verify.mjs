@@ -933,6 +933,87 @@ async function main() {
         await context.close();
       }
     }
+
+    // ---------------------------------------------------------------- memory + loop (phase 8)
+    if (want('memory')) {
+      const { page, context, problems } = await openGame(browser, server);
+      const snap = async () => {
+        await page.evaluate(() => window.__apex.render());
+        await page.clock.runFor(32);
+        return page.evaluate(() => {
+          const i = window.__apex.info();
+          return { geometries: i.geometries, textures: i.textures, programs: i.programs, loops: i.loops, uiNodes: document.querySelectorAll('#ui-root *').length };
+        });
+      };
+      const cycle = async (cid) => {
+        await page.evaluate((c) => window.__apex.startRace({ circuitId: c, mode: 'grandprix', laps: 3, opponents: 7 }), cid);
+        await waitPhase(page, 'countdown', 3000);
+        await page.evaluate(() => window.__apex.render());
+        await page.clock.runFor(16 * 30);
+        await page.evaluate(() => window.__apex.game.quitToMenu());
+        await page.clock.runFor(48);
+      };
+      // warm up once per circuit so every shader program exists, then measure
+      for (const cid of CIRCUIT_ORDER) await cycle(cid);
+      const base = await snap();
+      const seq = [];
+      for (let k = 0; k < 10; k++) {
+        await cycle(CIRCUIT_ORDER[k % 4]);
+        seq.push(await snap());
+      }
+      const last = seq[seq.length - 1];
+      report.memory = { base, seq };
+      check('10× enter/leave a race: renderer memory flat (geometries, textures, programs)', last.geometries === base.geometries && last.textures === base.textures && last.programs === base.programs, `base ${JSON.stringify(base)} → after 10 ${JSON.stringify(last)}`);
+      check('10× enter/leave: still exactly one rAF loop, UI nodes flat', seq.every((s) => s.loops === 1) && last.uiNodes === base.uiNodes, `loops ${seq.map((s) => s.loops).join('')}, ui nodes ${base.uiNodes} → ${last.uiNodes}`);
+      // draw-call / triangle budget with a full grid, High preset
+      const budget = [];
+      for (const cid of CIRCUIT_ORDER) {
+        await page.evaluate((c) => window.__apex.startRace({ circuitId: c, mode: 'grandprix', laps: 3, opponents: 7 }), cid);
+        await waitPhase(page, 'countdown', 3000);
+        await waitFor(page, () => window.__apex.getCar().raceState === 'running', null, 800);
+        await page.evaluate(() => window.__autopilot.start({ laps: 9, plan: [], speedScale: 0.9 }));
+        let calls = 0;
+        let tris = 0;
+        for (let f = 0; f < 40; f++) {
+          await page.evaluate(() => window.__apex.render());
+          await page.clock.runFor(16 * 15);
+          const i = await page.evaluate(() => window.__apex.info());
+          calls = Math.max(calls, i.calls);
+          tris = Math.max(tris, i.triangles);
+        }
+        await page.evaluate(() => window.__autopilot.stop());
+        budget.push({ cid, calls, tris });
+        await page.evaluate(() => window.__apex.game.quitToMenu());
+        await page.clock.runFor(48);
+      }
+      check('race budget: < 150 draw calls and < 300k triangles (8 cars, High)', budget.every((b) => b.calls < 150 && b.tris < 300000), budget.map((b) => `${b.cid} ${b.calls} calls / ${Math.round(b.tris / 1000)}k tris`).join(', '));
+      // adaptive quality: sustained slow frames step the pixel ratio down, then the preset
+      await page.evaluate(() => window.__apex.startRace({ circuitId: 'beginner', mode: 'practice', laps: 0 }));
+      await waitPhase(page, 'countdown', 3000);
+      const q0 = await page.evaluate(() => window.__apex.info());
+      const q1 = await page.evaluate(() => window.__apex.slowFrames(400, 40));
+      const q2 = await page.evaluate(() => window.__apex.slowFrames(2400, 40));
+      check('adaptive quality steps down under sustained slow frames (pixel ratio, then preset + shadows)', q1.pixelRatio < q0.pixelRatio && q2.quality === 'low' && q2.shadows === false, `${q0.quality}@${q0.pixelRatio} → ${q1.quality}@${q1.pixelRatio} → ${q2.quality}@${q2.pixelRatio}, shadows ${q2.shadows}`);
+      check('memory: console clean', problems.length === 0, formatProblems(problems));
+      await context.close();
+    }
+
+    // ---------------------------------------------------------------- debug view (?debugview)
+    if (want('debugview')) {
+      const { page, context, problems } = await openGame(browser, server, '&debugview');
+      await page.evaluate(() => window.__apex.startRace({ circuitId: 'street', mode: 'grandprix', laps: 3, opponents: 5 }));
+      await waitPhase(page, 'countdown', 3000);
+      await waitFor(page, () => window.__apex.getCar().raceState === 'running', null, 800);
+      await page.evaluate(() => window.__autopilot.start({ laps: 9, plan: [], speedScale: 0.9 }));
+      await page.clock.runFor(16 * 300);
+      await page.keyboard.press('F3');
+      await page.clock.runFor(16 * 30);
+      await shot(page, '56-debug-view');
+      const dv = await page.evaluate(() => ({ canvas: !!document.querySelector('.debug-view'), cells: window.__apex.game.race.world.lastTested.length, overlay: !!document.querySelector('.debug-overlay') && /draw calls/.test(document.querySelector('.debug-overlay').textContent) }));
+      check('?debugview draws the top-down view (collider cells tested, AI lines, camera) and F3 shows FPS / draw calls', dv.canvas && dv.cells > 0 && dv.overlay, JSON.stringify(dv));
+      check('debug view: console clean', problems.length === 0, formatProblems(problems));
+      await context.close();
+    }
   } catch (err) {
     check('verify run', false, String(err && err.stack ? err.stack : err));
   } finally {

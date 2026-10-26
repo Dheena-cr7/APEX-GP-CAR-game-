@@ -69,7 +69,13 @@ export class Game {
     this.ui = new MenuUI(this);
     this.store.subscribe(this._onPhase);
     window.addEventListener('resize', this._onResize);
-    this.quality.onChange(() => this._onResize());
+    // adaptive quality: pixel ratio first, then the lower preset's shadows
+    this.quality.onChange(() => {
+      const shadows = this.quality.preset.shadows;
+      this.renderer.shadowMap.enabled = shadows;
+      if (this.race && this.race.lights) this.race.lights.sun.castShadow = shadows;
+      this._onResize();
+    });
     this._onResize();
     if (this.params.has('debugview')) this.debugView = new DebugView(this);
     if (this.debugMode) this._installHook();
@@ -495,7 +501,14 @@ export class Game {
         loops: Loop.activeLoops,
         frameMs: game.frameMs,
         quality: game.quality.id,
+        pixelRatio: game.renderer.getPixelRatio(),
+        shadows: game.renderer.shadowMap.enabled,
       }),
+      /** Feed the adaptive-quality governor slow frames (test of the step-down). */
+      slowFrames: (n, ms) => {
+        for (let i = 0; i < n; i++) game.quality.sample(ms, ms / 1000);
+        return window.__apex.info();
+      },
       save: () => game.save.data,
       levels: () => LEVELS.map((l) => ({ id: l.id, index: l.index, mode: l.mode })),
       startLevel: (id) => game.startRace(levelRaceConfig(getLevel(id), game.save.data)),

@@ -35,3 +35,6 @@ One line per non-obvious choice.
 - Rival cars within 2.6 m of the camera are hidden for that frame so the camera never films through a car body.
 - Campaign gating: Street 5★, Speed 11★, Technical 17★; Titan 8★, Raven 16★, Nova 26★; extra liveries at 3/9/15/22★; a "cup" is 6+★ on one circuit. Free Play unlocks everything.
 - Time Attack targets come from the racing line's ideal lap (gold ×1.07, silver ×1.15, bronze ×1.27) with a whole-run time limit; Drift targets scale with lap length.
+- Adaptive quality: sustained slow frames lower the pixel ratio (down to 0.6×), then step the preset down and switch shadows off on Low.
+- Lights' shadow maps are render targets and must be disposed explicitly; without it every race leaked 4 textures.
+- Deployment: `vercel.json` (Vite, `dist/`) and a GitHub Actions Pages workflow; relative `base` serves both.

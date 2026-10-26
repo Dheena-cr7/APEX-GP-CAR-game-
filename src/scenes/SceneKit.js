@@ -97,6 +97,8 @@ export function disposeObject(root) {
   const geos = new Set();
   const mats = new Set();
   root.traverse((o) => {
+    // shadow maps are render targets owned by the light
+    if (o.isLight && o.shadow && o.shadow.map) o.shadow.dispose();
     if (o.geometry) geos.add(o.geometry);
     if (o.material) {
       if (Array.isArray(o.material)) o.material.forEach((m) => mats.add(m));
