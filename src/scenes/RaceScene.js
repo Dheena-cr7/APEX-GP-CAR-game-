@@ -177,6 +177,7 @@ export class RaceScene {
         timedOut: false,
         surface: SURFACES.asphalt,
         lastImpactTime: -10,
+        recoveries: 0,
       };
       return racer;
     };
@@ -254,6 +255,7 @@ export class RaceScene {
       r.padCooldown = 0;
       r.skidPts[0].on = r.skidPts[1].on = false;
       r.timedOut = false;
+      r.recoveries = 0;
       if (r.ai) r.ai.reset();
       r.vehicle.events.driftStart = r.vehicle.events.driftEnd = r.vehicle.events.boost = 0;
     }
@@ -614,7 +616,7 @@ export class RaceScene {
     }
 
     // stuck → auto recovery after ~3 s
-    const trying = r.isPlayer ? r.controls.throttle > 0.2 || r.controls.brake > 0.2 : true;
+    const trying = r.isPlayer ? r.controls.throttle > 0.2 || r.controls.brake > 0.2 : !r.ai.waiting;
     if (sp < PHYSICS.stuckSpeed && !r.finished && (trying || off)) r.stuckTime += dt;
     else r.stuckTime = 0;
     const limit = r.isPlayer ? PHYSICS.stuckTime : 2.5;
@@ -642,6 +644,7 @@ export class RaceScene {
     r.cp = keepCp;
     r.cp.lastS = r.proj.s;
     r.ghost = 1.2;
+    r.recoveries++;
     r.wrongTime = 0;
     r.offTime = 0;
     r.skidPts[0].on = r.skidPts[1].on = false;
@@ -762,6 +765,15 @@ export class RaceScene {
     pose.slip = pv.u > 3 ? pv.slip : 0;
     if (!this.paused) this.rig.update(pose, dt);
     this.sky.position.copy(this.camera.position);
+    // never film through another car: hide any rival whose body reaches the camera
+    const cam = this.camera.position;
+    for (const r of this.racers) {
+      if (r.isPlayer) continue;
+      const dx = r.vehicle.x - cam.x;
+      const dz = r.vehicle.z - cam.z;
+      const dy = r.vehicle.y + 0.5 - cam.y;
+      r.view.root.visible = dx * dx + dz * dz + dy * dy > 2.6 * 2.6;
+    }
     followLight(this.lights.sun, pose.x, pose.y, pose.z);
     if (!this.paused) {
       this._fx(dt);

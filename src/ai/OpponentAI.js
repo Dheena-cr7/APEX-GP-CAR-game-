@@ -39,6 +39,7 @@ export class OpponentAI {
     this.passSide = 0;
     this.passTime = 0;
     this.band = 1;
+    this.waiting = false;
     this.controls.throttle = this.controls.brake = this.controls.steer = 0;
   }
 
@@ -116,13 +117,32 @@ export class OpponentAI {
     vTarget *= this.band;
     // easier AIs lift a little mid-corner (bounded "mistakes", never spins)
     if (this.skill.mistake > 0 && Math.abs(m.kappa[r.proj.i]) > 1 / 60) vTarget *= 1 - this.skill.mistake * 0.15;
+    // crossing traffic: if a truck will be on the road when we get there, stop short and wait
+    this.waiting = false;
+    if (this.obstacles) {
+      for (const mv of this.obstacles.movers) {
+        if (mv.type !== 'truck') continue;
+        const d = m.deltaS(s, mv.s);
+        if (d <= -4 || d > 90) continue;
+        const eta = Math.max(0, d) / Math.max(4, speed);
+        if (d > 0 && this.obstacles.truckBlocks(mv, eta, 1.4)) {
+          const stopAt = Math.max(0, d - 11);
+          vTarget = Math.min(vTarget, Math.sqrt(2 * 11 * stopAt));
+          if (speed < 3) this.waiting = true;
+        }
+      }
+    }
     const dv = vTarget - speed;
-    if (dv > 0) {
+    if (vTarget < 0.5 && speed < 1.5) {
+      // holding: no brake (a brake press at standstill would select reverse)
+      c.throttle = 0;
+      c.brake = 0;
+    } else if (dv > 0) {
       c.throttle = clamp(dv * 0.4 + 0.15, 0, 1);
       c.brake = 0;
     } else {
       c.throttle = dv > -1.5 ? 0.15 : 0;
-      c.brake = dv < -1.5 ? clamp(-dv * 0.22, 0, 1) : 0;
+      c.brake = dv < -1.5 && speed > 1.2 ? clamp(-dv * 0.22, 0, 1) : 0;
     }
     // straighten out if sliding (clean driving)
     if (Math.abs(v.slip) > 0.2) c.throttle *= 0.4;

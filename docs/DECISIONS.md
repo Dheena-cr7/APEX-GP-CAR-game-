@@ -30,3 +30,8 @@ One line per non-obvious choice.
 - Handbrake with steering adds a yaw kick (3.2 rad/s²) so a flick breaks the rear loose in about 0.35 s; without it, drifts took close to a second to start.
 - Moving obstacles update before the cars each step and never crush a car: if a gate, truck or barrel's next pose would overlap a car it holds still that step (a gate pauses, a truck waits). Without this a car could be squeezed between the gate and the barrier.
 - Street GP's crossing truck uses a gap in the barrier and a visual side street; the last-resort track-space clamp is the invisible boundary there, so cars cannot leave through the gap.
+- AI wait for Street GP's crossing truck: they predict whether the truck will be on the road at their arrival time and stop short of the junction; waiting does not count as "stuck". Without this the AI queued into the truck (103 auto-recoveries in one race).
+- AI never press the brake at a standstill (in this car model brake at rest = reverse); they coast to a stop instead.
+- Rival cars within 2.6 m of the camera are hidden for that frame so the camera never films through a car body.
+- Campaign gating: Street 5★, Speed 11★, Technical 17★; Titan 8★, Raven 16★, Nova 26★; extra liveries at 3/9/15/22★; a "cup" is 6+★ on one circuit. Free Play unlocks everything.
+- Time Attack targets come from the racing line's ideal lap (gold ×1.07, silver ×1.15, bronze ×1.27) with a whole-run time limit; Drift targets scale with lap length.

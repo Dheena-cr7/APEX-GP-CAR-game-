@@ -180,6 +180,7 @@ export class ObstacleSystem {
     this.time = 0;
     this.rng = createRng(seed);
     this._pt = { x: 0, y: 0, z: 0, tx: 0, tz: 1, i: 0 };
+    this._tl = { t: 0, dir: 1, ph: 0, travel: 0 };
     this.propBoxes = [];
     if (obstacles) this._buildStatic();
     this._buildPads();
@@ -429,28 +430,52 @@ export class ObstacleSystem {
     mover.warn = lampMat;
   }
 
+  /** Lateral position of a crossing truck at mover time `time` (+ its direction). */
+  truckLateral(mv, time, out) {
+    const ph = ((time / mv.period + mv.phase) % 1 + 1) % 1;
+    // crosses in 25% of the period each way, waits in the side street between
+    const travel = mv.wallT + 14;
+    if (ph < 0.25) {
+      out.t = -travel + (ph / 0.25) * travel * 2;
+      out.dir = 1;
+    } else if (ph < 0.5) {
+      out.t = travel;
+      out.dir = 1;
+    } else if (ph < 0.75) {
+      out.t = travel - ((ph - 0.5) / 0.25) * travel * 2;
+      out.dir = -1;
+    } else {
+      out.t = -travel;
+      out.dir = -1;
+    }
+    out.ph = ph;
+    out.travel = travel;
+    return out;
+  }
+
+  /**
+   * True if a crossing truck will occupy the road at s within the window
+   * [eta - slack, eta + slack] seconds from now (AI uses this to wait).
+   */
+  truckBlocks(mv, eta, slack) {
+    const tl = this._tl;
+    const half = OBSTACLE.truck.length / 2 + 2.5;
+    for (let k = -2; k <= 2; k++) {
+      this.truckLateral(mv, mv.time + eta + (slack * k) / 2, tl);
+      if (Math.abs(tl.t) < mv.hw + half) return true;
+    }
+    return false;
+  }
+
   _positionMover(mv, time) {
     const m = this.model;
     const ph = ((time / mv.period + mv.phase) % 1 + 1) % 1;
     const p = this._pt;
     if (mv.type === 'truck') {
-      // crosses in 25% of the period each way, waits in the side street between
-      const travel = mv.wallT + 14;
-      let t;
-      let dir;
-      if (ph < 0.25) {
-        t = -travel + (ph / 0.25) * travel * 2;
-        dir = 1;
-      } else if (ph < 0.5) {
-        t = travel;
-        dir = 1;
-      } else if (ph < 0.75) {
-        t = travel - ((ph - 0.5) / 0.25) * travel * 2;
-        dir = -1;
-      } else {
-        t = -travel;
-        dir = -1;
-      }
+      const tl = this.truckLateral(mv, time, this._tl);
+      const t = tl.t;
+      const dir = tl.dir;
+      const travel = tl.travel;
       m.pointAt(mv.s, t, p);
       const y = m.heightAt(mv.s, Math.max(-mv.wallT, Math.min(mv.wallT, t)));
       const across = Math.atan2(p.tx, p.tz) - (dir > 0 ? Math.PI / 2 : -Math.PI / 2);

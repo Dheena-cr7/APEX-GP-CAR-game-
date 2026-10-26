@@ -480,6 +480,79 @@ async function main() {
         await context.close();
       }
     }
+
+    // ---------------------------------------------------------------- AI + campaign (phase 6)
+    if (want('ai')) {
+      for (const cid of CIRCUIT_ORDER) {
+        const { page, context, problems } = await openGame(browser, server);
+        await page.evaluate(() => window.__reseed(20260101));
+        await page.evaluate((c) => window.__apex.startRace({ circuitId: c, mode: 'grandprix', laps: 1, opponents: 7, difficulty: c === 'technical' ? 'hard' : 'medium' }), cid);
+        await waitPhase(page, 'countdown', 3000);
+        // the player drives slowly so every AI finishes before the race closes
+        await page.evaluate(() => window.__autopilot.start({ laps: 9, plan: [], speedScale: 0.7 }));
+        let race = null;
+        let maxStuck = 0;
+        let shotDone = false;
+        for (let i = 0; i < 1400; i++) {
+          await page.clock.runFor(320);
+          const phase = await page.evaluate(() => window.__apex.ready());
+          if (phase === 'results') break;
+          race = await page.evaluate(() => window.__apex.getRace());
+          if (!race) break;
+          for (const r of race.racers) if (!r.player) maxStuck = Math.max(maxStuck, r.stuck);
+          if (!shotDone && race.time > 8) {
+            shotDone = true;
+            await shot(page, `40-ai-${cid}`);
+          }
+        }
+        await waitPhase(page, 'results', 2000);
+        await page.clock.runFor(400);
+        await shot(page, `41-results-${cid}`);
+        const res = await page.evaluate(() => window.__apex.game.lastResults);
+        const ai = race.racers.filter((r) => !r.player);
+        const recov = ai.reduce((a, r) => a + r.recoveries, 0);
+        check(`${cid}: all 7 AI finish the race`, ai.every((r) => r.finished), ai.map((r) => `${r.name} ${r.finished ? r.finishTime.toFixed(1) : 'DNF'}`).join(', '));
+        check(`${cid}: AI never permanently stuck (≤ 1 auto-recovery each)`, ai.every((r) => r.recoveries <= 1), `${recov} recoveries total, longest stall ${maxStuck.toFixed(1)} s`);
+        const rows = res.rows;
+        const sorted = rows.every((r, i) => i === 0 || r.time >= rows[i - 1].time);
+        const me = rows.findIndex((r) => r.isPlayer) + 1;
+        check(`${cid}: results ranked by time, player position correct`, sorted && me === res.position && rows.length === 8, `player P${res.position} of ${rows.length}`);
+        check(`${cid}: AI race console clean`, problems.length === 0, formatProblems(problems));
+        await context.close();
+      }
+      // every campaign level loads with its own rules
+      {
+        const { page, context, problems } = await openGame(browser, server);
+        const levels = await page.evaluate(() => window.__apex.levels());
+        const loaded = [];
+        for (const lvl of levels) {
+          await page.evaluate((id) => window.__apex.startLevel(id), lvl.id);
+          const ok = await waitPhase(page, 'countdown', 3000);
+          const info = await page.evaluate(() => {
+            const r = window.__apex.game.race;
+            return { mode: r.config.mode, laps: r.config.laps, opponents: r.racers.length - 1, target: r.config.target && r.config.target.type, tokens: r.obstacles.tokenCount };
+          });
+          loaded.push({ id: lvl.id, ok, ...info });
+          if (lvl.index === 5) await shot(page, '42-level-street-drift');
+          await page.evaluate(() => window.__apex.game.requestPause());
+          await page.evaluate(() => window.__apex.game.quitToMenu());
+          await page.clock.runFor(48);
+        }
+        check('all 12 campaign levels load', loaded.length === 12 && loaded.every((l) => l.ok), loaded.filter((l) => !l.ok).map((l) => l.id).join(', ') || '12/12');
+        check(
+          'levels carry their rules (GP vs AI, time attack, drift targets)',
+          loaded.every((l) => (l.mode === 'grandprix' ? l.opponents >= 5 && l.target === 'position' : l.opponents === 0 && (l.mode === 'timeattack' ? l.target === 'lap' : l.target === 'drift'))),
+          loaded.map((l) => `${l.id}:${l.laps}L/${l.opponents}AI/${l.target}`).join(' '),
+        );
+        const S = await page.evaluate(() => window.__apex.campaignSelfTest());
+        check('stars: GP P1 = 3, P2 = 2, P3 = 1, P4 = 0', S.gp.join(',') === '3,2,1,0', S.gp.join(','));
+        check('stars: time attack thresholds, time-up = 0', S.ta.join(',') === '3,2,1,0,0', S.ta.join(','));
+        check('stars: drift thresholds', S.drift.join(',') === '3,2,1,0', S.drift.join(','));
+        check('stars unlock the next circuit, cars and liveries; a worse result keeps the best', S.unlocks.street && S.unlocks.titan && S.unlocks.newUnlocks > 0 && S.unlocks.keepsBest, JSON.stringify(S.unlocks));
+        check('campaign: console clean', problems.length === 0, formatProblems(problems));
+        await context.close();
+      }
+    }
   } catch (err) {
     check('verify run', false, String(err && err.stack ? err.stack : err));
   } finally {

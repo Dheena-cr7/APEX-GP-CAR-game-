@@ -14,7 +14,8 @@ import { showError, hideError } from '../ui/ErrorScreen.js';
 import { h } from '../ui/dom.js';
 import { CIRCUITS } from '../tracks/TrackData.js';
 import { getCar } from '../cars/CarData.js';
-import { applyResults } from '../race/Campaign.js';
+import { applyResults, LEVELS, getLevel, levelRaceConfig, levelTarget } from '../race/Campaign.js';
+import { starsFor } from '../race/Scoring.js';
 
 /** Top-level game object: renderer, single loop, store, scenes and UI. */
 export class Game {
@@ -440,7 +441,7 @@ export class Game {
           time: r.manager.time,
           laps: r.player.cp.laps,
           totalLaps: r.config.laps,
-          racers: r.racers.map((x) => ({ name: x.name, player: x.isPlayer, laps: x.cp.laps, s: x.proj.s, t: x.proj.t, speed: x.vehicle.speed, position: x.position, finished: x.finished, stuck: x.stuckTime })),
+          racers: r.racers.map((x) => ({ name: x.name, player: x.isPlayer, laps: x.cp.laps, s: x.proj.s, t: x.proj.t, speed: x.vehicle.speed, position: x.position, finished: x.finished, finishTime: x.finishTime, stuck: x.stuckTime, recoveries: x.recoveries, progress: x.progress })),
           results: game.lastResults,
         };
       },
@@ -495,6 +496,44 @@ export class Game {
         quality: game.quality.id,
       }),
       save: () => game.save.data,
+      levels: () => LEVELS.map((l) => ({ id: l.id, index: l.index, mode: l.mode })),
+      startLevel: (id) => game.startRace(levelRaceConfig(getLevel(id), game.save.data)),
+      /** Scoring + unlock rules on synthetic results, against a throwaway in-memory save. */
+      campaignSelfTest: () => {
+        const rows = [{}, {}, {}, {}, {}, {}];
+        const gpL = getLevel('beginner-grandprix');
+        const gp = [1, 2, 3, 4].map((p) => starsFor(gpL, levelTarget(gpL), { position: p, rows }));
+        const taL = getLevel('beginner-timeattack');
+        const tt = levelTarget(taL);
+        const lap = (t, extra = {}) => starsFor(taL, tt, { bestLap: t, lapTimes: [t, t, t], penalty: 0, ...extra });
+        const ta = [lap(tt.gold - 0.1), lap(tt.silver - 0.1), lap(tt.bronze - 0.1), lap(tt.bronze + 1), lap(tt.gold - 1, { timedOut: true })];
+        const drL = getLevel('beginner-drift');
+        const dt = levelTarget(drL);
+        const drift = [dt.gold, dt.silver, dt.bronze, dt.bronze - 1].map((p) => starsFor(drL, dt, { driftScore: p }));
+        const mem = new SaveManager(null);
+        mem.load();
+        const cfgOf = (id) => levelRaceConfig(getLevel(id), mem.data);
+        const sum = () => Object.values(mem.data.stars).reduce((a, b) => a + b, 0);
+        const win = { mode: 'grandprix', position: 1, rows, bestLap: 50, lapTimes: [50], driftScore: 0, longestDrift: 0 };
+        applyResults(mem, win, cfgOf('beginner-grandprix'));
+        const r2 = applyResults(mem, { mode: 'timeattack', bestLap: tt.gold - 0.5, lapTimes: [tt.gold - 0.5], penalty: 0, driftScore: 0, longestDrift: 0 }, cfgOf('beginner-timeattack'));
+        const r3 = applyResults(mem, { mode: 'drift', bestLap: 60, lapTimes: [60], driftScore: dt.silver + 1, longestDrift: 3 }, cfgOf('beginner-drift'));
+        const street = sum() >= 5;
+        const worse = applyResults(mem, { mode: 'grandprix', position: 4, rows, bestLap: 60, lapTimes: [60], driftScore: 0, longestDrift: 0 }, cfgOf('beginner-grandprix'));
+        const streetGp = applyResults(mem, { ...win }, cfgOf('street-grandprix'));
+        return {
+          gp,
+          ta,
+          drift,
+          unlocks: {
+            street,
+            titan: mem.data.unlockedCars.includes('titan'),
+            newUnlocks: r2.newUnlocks.length + r3.newUnlocks.length + streetGp.newUnlocks.length,
+            keepsBest: worse.stars === 0 && mem.data.stars['beginner-grandprix'] === 3,
+            total: sum(),
+          },
+        };
+      },
     };
   }
 }
