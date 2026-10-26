@@ -222,6 +222,9 @@ export class Vehicle {
     let dv = fyf * cd + fyr - u * this.r;
     let dyaw = (a * fyf * cd - b * fyr) / (a * b);
 
+    // handbrake flick: pulling the handbrake while steering swings the tail out
+    if (this.handbrake && u > 8) dyaw += -this.steer * P.handbrakeYaw * clamp(u / 22, 0, 1.2);
+
     // anti-spin guard
     const beta = u > 0.5 ? Math.atan2(this.v, u) : 0;
     this.slip = beta;

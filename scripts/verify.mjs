@@ -223,6 +223,189 @@ async function main() {
         check('3 runs produce identical positions & speeds at every sample', same(runs[0].status.samples, runs[1].status.samples) && same(runs[0].status.samples, runs[2].status.samples), `${runs[0].status.samples.length} samples each`);
       }
     }
+
+    // ---------------------------------------------------------------- race rules (phase 3)
+    if (want('rules')) {
+      const { page, context, problems } = await openGame(browser, server);
+      await page.evaluate(() => window.__apex.startRace({ circuitId: 'beginner', mode: 'timetrial', laps: 3, opponents: 0 }));
+      await waitPhase(page, 'countdown', 3000);
+      await waitFor(page, () => window.__apex.getCar().raceState === 'running', null, 600);
+      const R = await page.evaluate(() => {
+        const api = window.__apex;
+        const race = api.game.race;
+        const m = race.model;
+        const L = m.length;
+        const out = {};
+        const drive = (n, inp) => {
+          api.setInput(inp);
+          api.step(n);
+          api.setInput(null);
+          return api.getCar();
+        };
+        const placeAt = (s, t, heading) => {
+          api.teleport(s, t);
+          if (heading !== undefined) {
+            race.player.vehicle.h = heading;
+            race.player.vehicle.ph = heading;
+          }
+        };
+        // 1. start: cross the line from the grid
+        let c = drive(240, { throttle: 1 });
+        out.afterStart = { lap: c.lap, next: c.next };
+        // 2. reverse back over the line and forward again, 3 times: no lap may count
+        for (let k = 0; k < 3; k++) {
+          drive(30, { brake: 0 });
+          placeAt(25, 0);
+          drive(1, {});
+          race.player.vehicle.u = 0;
+          for (let i = 0; i < 400 && race.player.proj.s < L - 15 && race.player.proj.s > 1; i++) drive(1, { brake: 1 });
+          drive(60, { brake: 1 });
+          drive(1, {});
+          for (let i = 0; i < 400 && (race.player.proj.s > L / 2 || race.player.proj.s < 20); i++) drive(1, { throttle: 1 });
+        }
+        c = api.getCar();
+        out.afterReverse = { lap: c.lap, lapTimes: c.lapTimes.length, wrongWaySeen: false };
+        // 3. skip: teleport to just before the line (jump > 60 m resyncs without crossings) and cross it
+        placeAt(L - 30, 0);
+        drive(1, {});
+        race.player.vehicle.u = 30;
+        drive(240, { throttle: 1 });
+        c = api.getCar();
+        out.afterSkip = { lap: c.lap, lapTimes: c.lapTimes.length, next: c.next };
+        // 4. wrong way warning
+        placeAt(L * 0.3, 0, race.model.heading(L * 0.3) + Math.PI);
+        race.player.vehicle.u = 0;
+        drive(240, { throttle: 1 });
+        out.wrongWay = api.getCar().wrongWay;
+        // 5. walls stop the car: aim straight at the right-hand barrier at speed
+        const sW = L * 0.12;
+        placeAt(sW, 0, race.model.heading(sW) - Math.PI / 2);
+        race.player.vehicle.u = 40;
+        let maxT = 0;
+        let minSpeedAfter = 99;
+        for (let i = 0; i < 240; i++) {
+          c = drive(1, { throttle: 1 });
+          maxT = Math.max(maxT, Math.abs(c.t));
+          if (Math.abs(c.t) > m.wallOffset(sW) - 3) minSpeedAfter = Math.min(minSpeedAfter, c.speed);
+        }
+        out.wall = { maxT, wallOffset: m.wallOffset(sW), minSpeedAfter, maxPen: race.debug.maxPenetration };
+        // 6. auto-recovery after ~3 s stuck against the wall
+        const before = { x: c.x, z: c.z };
+        c = drive(120 * 4, { throttle: 1 });
+        out.recovered = Math.hypot(c.x - before.x, c.z - before.z) > 3 && Math.abs(c.t) < m.halfWidthAt(c.s);
+        // 7. cones scatter
+        const def = race.def;
+        const cone = def.obstacles.find((o) => o.type === 'cones');
+        const sc = cone.u * L;
+        // aim straight at the middle of the row from 14 m out
+        placeAt(sc - 14, cone.t, race.model.heading(sc - 7));
+        race.player.vehicle.u = 22;
+        drive(120, { throttle: 0.6 });
+        out.cones = race.obstacles.conesKnocked;
+        // 8. oil lowers grip
+        const oil = def.obstacles.find((o) => o.type === 'oil');
+        placeAt(oil.u * L - 1, oil.t, race.model.heading(oil.u * L));
+        race.player.vehicle.u = 15;
+        drive(12, { throttle: 0.5 });
+        out.oilSurface = api.getCar().surface;
+        // 9. boost pad boosts
+        const pad = def.boostPads[0];
+        placeAt(pad.u * L - 8, pad.t, race.model.heading(pad.u * L));
+        race.player.vehicle.u = 30;
+        drive(60, { throttle: 1 });
+        out.boost = race.player.vehicle.events.boost > 0;
+        // 10. track limits penalty (timed modes): sit on the grass > 1.6 s
+        const pen0 = race.player.penalty;
+        placeAt(L * 0.2, m.halfWidthAt(L * 0.2) + 5, race.model.heading(L * 0.2));
+        race.player.vehicle.u = 12;
+        drive(120 * 2.2, { throttle: 0.3 });
+        out.penalty = race.player.penalty - pen0;
+        // 11. drift: handbrake flick on the start straight, hold, then a simple
+        //     heading controller straightens the car → the points bank
+        const v = race.player.vehicle;
+        const follow = (thr) => {
+          const p = race.player.proj;
+          let e = m.heading(p.s + 12) - v.h;
+          e = Math.atan2(Math.sin(e), Math.cos(e));
+          return { throttle: thr, steer: Math.max(-1, Math.min(1, -e * 2.5 - p.t * 0.05)) };
+        };
+        const sD = L * 0.93;
+        placeAt(sD, -6, race.model.heading(sD));
+        v.u = 30;
+        race.drift.reset();
+        drive(40, { throttle: 0.4, steer: 1, handbrake: true });
+        drive(50, { throttle: 0.85, steer: 0.2 });
+        const during = { drifting: api.getCar().drifting, current: race.drift.current };
+        for (let i = 0; i < 360; i++) drive(1, follow(0.45));
+        out.driftBank = { drifted: during.drifting, currentWhileDrifting: Math.round(during.current), banked: race.drift.banked };
+        return out;
+      });
+      check('start: crossing the line from the grid starts lap 1 (no lap counted)', R.afterStart.lap === 0 && R.afterStart.next === 1, JSON.stringify(R.afterStart));
+      check('reversing over the line 3× never counts a lap', R.afterReverse.lap === 0 && R.afterReverse.lapTimes === 0, JSON.stringify(R.afterReverse));
+      check('skipping checkpoints then crossing the line does not count', R.afterSkip.lap === 0 && R.afterSkip.lapTimes === 0, JSON.stringify(R.afterSkip));
+      check('wrong-way warning when driving backwards', R.wrongWay === true);
+      check('walls stop the car (never past the barrier, speed killed)', R.wall.maxT < R.wall.wallOffset && R.wall.minSpeedAfter < 15 && R.wall.maxPen <= 0.01, JSON.stringify(R.wall));
+      check('auto-recovery to the track after ~3 s stuck', R.recovered === true);
+      check('cones scatter when hit', R.cones > 0, `${R.cones} cones knocked`);
+      check('oil switches the surface to low grip', R.oilSurface === 'oil', R.oilSurface);
+      check('boost pads boost', R.boost === true);
+      check('drift: handbrake flick starts a drift, straightening banks the points', R.driftBank.drifted && R.driftBank.banked > 0, JSON.stringify(R.driftBank));
+      check('track limits: > 1.6 s off the road costs +1 s', Math.abs(R.penalty - 1) < 1e-9, `penalty ${R.penalty}`);
+      // restart fully resets cars, timers, particles, skid marks, obstacles
+      await page.evaluate(() => window.__apex.game.restartRace());
+      await page.clock.runFor(48);
+      const reset = await page.evaluate(() => {
+        const r = window.__apex.game.race;
+        const c = window.__apex.getCar();
+        return { lap: c.lap, time: c.raceTime, state: c.raceState, cones: r.obstacles.conesKnocked, particles: r.particles.live, skids: r.skids.count, drift: c.drift.total, penalty: c.penalty, speed: c.speed, phase: window.__apex.ready(), loops: window.__apex.info().loops };
+      });
+      check('restart fully resets (laps, clock, cones, particles, skid marks, drift, penalties)', reset.lap === -1 && reset.time === 0 && reset.cones === 0 && reset.particles === 0 && reset.skids === 0 && reset.drift === 0 && reset.penalty === 0 && reset.speed === 0 && reset.phase === 'countdown', JSON.stringify(reset));
+      check('restart keeps exactly one rAF loop', reset.loops === 1, `${reset.loops} loops`);
+      // drift combo breaks on a solid hit: drift on Street GP's start straight, then slide into a concrete block
+      await page.evaluate(() => window.__apex.go('menu'));
+      await page.clock.runFor(48);
+      await page.evaluate(() => window.__apex.startRace({ circuitId: 'street', mode: 'timetrial', laps: 3, opponents: 0 }));
+      await waitPhase(page, 'countdown', 3000);
+      await waitFor(page, () => window.__apex.getCar().raceState === 'running', null, 600);
+      const B = await page.evaluate(() => {
+        const api = window.__apex;
+        const race = api.game.race;
+        const L = race.model.length;
+        const drive = (n, inp) => {
+          api.setInput(inp);
+          api.step(n);
+          api.setInput(null);
+          return api.getCar();
+        };
+        api.teleport(L - 110, -3);
+        race.player.vehicle.u = 28;
+        race.drift.reset();
+        drive(40, { throttle: 0.4, steer: 1, handbrake: true });
+        drive(30, { throttle: 0.85, steer: 0.2 });
+        const current = race.drift.current;
+        const drifting = race.player.vehicle.drifting;
+        // move the sliding car (velocity and drift state untouched) 3 m short of a concrete block
+        const block = race.world.all.find((c) => c.kind === 'solid' && c.shape === 'box' && c.hz < 2);
+        const v = race.player.vehicle;
+        const sp = Math.hypot(v.vx, v.vz);
+        const dx = v.vx / sp;
+        const dz = v.vz / sp;
+        v.x = v.px = block.x - dx * 3.4;
+        v.z = v.pz = block.z - dz * 3.4;
+        race.player.proj.i = -1;
+        race.model.project(v.x, v.z, -1, race.player.proj);
+        const banked = race.drift.banked;
+        let impact = 0;
+        for (let i = 0; i < 60; i++) {
+          drive(1, { throttle: 0.85, steer: 0.2 });
+          impact = Math.max(impact, v.lastImpact);
+        }
+        return { drifting, current: Math.round(current), after: race.drift.current, bankedGain: race.drift.banked - banked, impact };
+      });
+      check('drift combo breaks on a solid hit (unbanked points lost)', B.drifting && B.current > 0 && B.impact > 2.5 && B.after === 0 && B.bankedGain === 0, JSON.stringify(B));
+      check('rules: console clean', problems.length === 0, formatProblems(problems));
+      await context.close();
+    }
   } catch (err) {
     check('verify run', false, String(err && err.stack ? err.stack : err));
   } finally {

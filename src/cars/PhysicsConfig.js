@@ -37,7 +37,8 @@ export const PHYSICS = Object.freeze({
   maxRpm: 12500,
 
   // handbrake & drift
-  handbrakeRearGrip: 0.42,
+  handbrakeRearGrip: 0.36,
+  handbrakeYaw: 3.2, // rad/s² of extra rotation while the handbrake is pulled with steering
   handbrakeDecel: 2.6,
   driftEnterAngle: (13 * Math.PI) / 180,
   driftExitAngle: (6 * Math.PI) / 180,

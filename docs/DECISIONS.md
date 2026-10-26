@@ -23,3 +23,8 @@ One line per non-obvious choice.
 - AI drives clean (no scripted slides): more reliable than stylised slides; the anti-spin assist means it can never spin out.
 - Results live in `ui/ResultsUI.js`; menus, pause and overlays in `ui/MenuUI.js`.
 - Start-gantry pillars stand outside the barriers (the gantry spans the runoff) so nothing can clip them.
+- Lap 1 is a standing start timed from lights out; the first crossing of the line (from the grid behind it) only arms lap counting.
+- Checkpoints: 16 evenly spaced + the 2 sector splits. Crossing one backward un-passes it; a "high-water" lap counter means a re-crossing never fires a second lap event.
+- A jump of more than 60 m between steps (teleport / reset) re-syncs a racer's checkpoint position without registering crossings.
+- Track limits: car centre beyond the kerb for more than 1.6 s = +1 s in timed modes (warning only in practice and drift).
+- Handbrake with steering adds a yaw kick (3.2 rad/s²) so a flick breaks the rear loose in about 0.35 s; without it, drifts took close to a second to start.
