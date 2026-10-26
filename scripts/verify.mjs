@@ -406,6 +406,65 @@ async function main() {
       check('rules: console clean', problems.length === 0, formatProblems(problems));
       await context.close();
     }
+
+    // ---------------------------------------------------------------- garage + cars (phase 4)
+    if (want('garage')) {
+      const { page, context, problems } = await openGame(browser, server);
+      await page.evaluate(() => window.__apex.go('garage', { returnTo: 'menu' }));
+      await page.clock.runFor(400);
+      const names = [];
+      for (let i = 0; i < 6; i++) {
+        await page.clock.runFor(1200);
+        const info = await page.evaluate(() => ({ name: document.querySelector('.garage__panel h1').textContent, locked: !!document.querySelector('.garage__lock .hazard-band'), selectDisabled: document.querySelector('.garage__actions .btn--primary').disabled }));
+        names.push(info);
+        await shot(page, `20-garage-${i + 1}`);
+        await page.keyboard.press('ArrowRight');
+      }
+      check('garage shows all 6 cars', new Set(names.map((n) => n.name)).size === 6, names.map((n) => n.name).join(', '));
+      check('3 cars unlocked at start, 3 locked with a hazard band', names.filter((n) => !n.locked).length === 3 && names.filter((n) => n.locked).every((n) => n.selectDisabled), names.map((n) => `${n.name}:${n.locked ? 'locked' : 'open'}`).join(' '));
+      // pick Viper (index 1) with the Glacier livery, then Enter = select
+      await page.keyboard.press('ArrowRight'); // the loop wrapped back to Falcon; one more → Viper
+      await page.clock.runFor(200);
+      await page.locator('.livery[aria-label^="Glacier"]').click();
+      await page.clock.runFor(200);
+      await shot(page, '21-garage-livery');
+      await page.locator('.garage__actions .btn--primary').click();
+      await page.clock.runFor(300);
+      const sv = await page.evaluate(() => ({ car: window.__apex.save().carId, livery: window.__apex.save().livery.viper, phase: window.__apex.ready() }));
+      check('select car + livery persists to the save and returns to the menu', sv.car === 'viper' && sv.livery === 'glacier' && sv.phase === 'menu', JSON.stringify(sv));
+      // locked car cannot be equipped
+      await page.evaluate(() => window.__apex.go('garage', { returnTo: 'menu' }));
+      await page.clock.runFor(300);
+      for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowRight'); // viper → comet → titan (locked)
+      await page.clock.runFor(200);
+      await page.keyboard.press('Enter');
+      await page.clock.runFor(200);
+      const locked = await page.evaluate(() => ({ car: window.__apex.save().carId, phase: window.__apex.ready() }));
+      check('Enter on a locked car does nothing', locked.car === 'viper' && locked.phase === 'garage', JSON.stringify(locked));
+      // steering lock check: full lock at rest, chase + close cameras
+      await page.evaluate(() => window.__apex.go('menu'));
+      await page.clock.runFor(100);
+      await page.evaluate(() => window.__apex.startRace({ circuitId: 'beginner', mode: 'practice', laps: 0 }));
+      await waitPhase(page, 'countdown', 3000);
+      await waitFor(page, () => window.__apex.getCar().raceState === 'running', null, 600);
+      await page.evaluate(() => {
+        window.__apex.setInput({ steer: 1, throttle: 0.15 });
+        window.__apex.step(90);
+      });
+      await shot(page, '22-steer-lock-chase');
+      await page.evaluate(() => window.__apex.game.race.rig.setMode('close'));
+      await page.clock.runFor(16 * 40);
+      await shot(page, '23-steer-lock-close');
+      const lock = await page.evaluate(() => {
+        const r = window.__apex.game.race;
+        const view = r.player.view;
+        return { steerAngle: r.player.vehicle.steerAngle, wheelYaw: view.wheels[0].pivot.rotation.y };
+      });
+      check('visual steering clamped to 25°', Math.abs(lock.wheelYaw) <= (25 * Math.PI) / 180 + 1e-6, `physics ${((lock.steerAngle * 180) / Math.PI).toFixed(1)}°, wheels ${((lock.wheelYaw * 180) / Math.PI).toFixed(1)}°`);
+      await page.evaluate(() => window.__apex.setInput(null));
+      check('garage: console clean', problems.length === 0, formatProblems(problems));
+      await context.close();
+    }
   } catch (err) {
     check('verify run', false, String(err && err.stack ? err.stack : err));
   } finally {

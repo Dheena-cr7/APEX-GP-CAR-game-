@@ -218,7 +218,10 @@ export class Vehicle {
     const fyr = dr * tyre(P.corneringRear * alphaR, P.tyreFalloff);
     const cd = Math.cos(delta);
     const sd = Math.sin(delta);
-    let du = fx - fyf * sd + this.v * this.r;
+    // low speed: tyre side forces fade in with the kinematic blend (below
+    // ~5 m/s a fully locked front tyre must not brake the car backwards)
+    const k = u < 0 ? 0 : clamp((Math.abs(u) - 1.5) / (P.lowSpeedBlend - 1.5), 0, 1);
+    let du = fx + k * (-fyf * sd + this.v * this.r);
     let dv = fyf * cd + fyr - u * this.r;
     let dyaw = (a * fyf * cd - b * fyr) / (a * b);
 
@@ -253,7 +256,6 @@ export class Vehicle {
     if (this.braking && u < 0 && nu > 0) nu = 0;
 
     // ---- low speed / reverse: kinematic blend ----
-    const k = u < 0 ? 0 : clamp((Math.abs(u) - 1.5) / (P.lowSpeedBlend - 1.5), 0, 1);
     if (k < 1) {
       const kinR = (nu * Math.tan(delta)) / L;
       const kinV = this.v * Math.exp(-12 * dt);

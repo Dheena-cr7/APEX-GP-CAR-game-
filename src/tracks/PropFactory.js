@@ -249,9 +249,9 @@ export function buildProps(track, model, def, theme, rng, density = 1) {
   const radius = Math.max(model.bounds.maxX - model.bounds.minX, model.bounds.maxZ - model.bounds.minZ) / 2;
   const add = (m) => m && group.add(m);
   let count = 0;
-  // coarse AABBs of the big props (camera-inside-geometry check)
+  // oriented boxes of the big props, in each kit's local frame (camera check)
   const boxes = track.propBoxes || (track.propBoxes = []);
-  const box = (x, y, z, rx, h, rz) => boxes.push({ minX: x - rx, maxX: x + rx, minY: y - 0.5, maxY: y + h, minZ: z - rz, maxZ: z + rz });
+  const box = (x, y, z, rot, x0, x1, z0, z1, h) => boxes.push({ x, z, rot, x0, x1, z0, z1, minY: y - 0.5, maxY: y + h });
 
   const scatter = (num, minD, maxD, fn) => {
     const list = [];
@@ -300,7 +300,7 @@ export function buildProps(track, model, def, theme, rng, density = 1) {
       list.push({ x: pt.x, y: model.heightAt(s, side * off) - 0.3, z: pt.z, rot: heading + (side > 0 ? Math.PI / 2 : -Math.PI / 2) });
     }
     add(instanced(kitGrandstand(theme), mat, list, 'grandstands', { castShadow: false }));
-    for (const it of list) box(it.x, it.y, it.z, 21, 11, 21);
+    for (const it of list) box(it.x, it.y, it.z, it.rot, -21, 21, -8.7, 5, 11);
     count += list.length;
   }
   if (n('signs')) {
@@ -332,7 +332,7 @@ export function buildProps(track, model, def, theme, rng, density = 1) {
   if (n('chalets')) {
     const chalets = scatter(n('chalets'), 20, 120, (p) => ({ x: p.x, y: p.y - 0.3, z: p.z, rot: rng.range(0, 6.28), scale: rng.range(0.9, 1.3) }));
     add(instanced(kitChalet(theme), mat, chalets, 'chalets'));
-    for (const it of chalets) box(it.x, it.y, it.z, 6 * it.scale, 6.6 * it.scale, 6 * it.scale);
+    for (const it of chalets) box(it.x, it.y, it.z, it.rot, -4.6 * it.scale, 4.6 * it.scale, -3.4 * it.scale, 3.4 * it.scale, 6.6 * it.scale);
   }
   if (n('buildings')) {
     const list = scatter(n('buildings'), 9, 90, (p) => {
@@ -352,10 +352,7 @@ export function buildProps(track, model, def, theme, rng, density = 1) {
       }
     }
     add(instanced(kitBuilding(theme), mat, list, 'buildings', { castShadow: false, colors: [UI.chalk, shadeHex(UI.chalk, -0.1), shadeHex(UI.chalk, -0.2)] }));
-    for (const it of list) {
-      const r = Math.hypot(it.sx, it.sz) / 2;
-      box(it.x, it.y, it.z, r, it.sy, r);
-    }
+    for (const it of list) box(it.x, it.y, it.z, it.rot, -it.sx / 2, it.sx / 2, -it.sz / 2, it.sz / 2, it.sy);
     const windows = new THREE.MeshBasicMaterial({ vertexColors: true });
     add(instanced(kitWindows(), windows, list, 'windows', { colors: theme.neon ? [UI.chalk, theme.neon[3], shadeHex(UI.chalk, -0.3)] : [UI.chalk] }));
   }

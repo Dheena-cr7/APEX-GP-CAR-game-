@@ -10,7 +10,7 @@ const damp = (k, dt) => 1 - Math.exp(-k * dt);
 
 export const CHASE_PRESETS = Object.freeze({
   chase: { dist: 6.8, height: 2.45, lookAhead: 5.5, lookHeight: 0.9, fov: 62, headingK: 3, lateralK: 4, heightK: 7, swing: 0.55 },
-  close: { dist: 4.7, height: 1.65, lookAhead: 5, lookHeight: 0.75, fov: 66, headingK: 3.6, lateralK: 5, heightK: 9, swing: 0.45 },
+  close: { dist: 5.0, height: 2.0, lookAhead: 6, lookHeight: 1.05, fov: 64, headingK: 3.6, lateralK: 5, heightK: 9, swing: 0.45 },
 });
 
 export class ChaseCamera {

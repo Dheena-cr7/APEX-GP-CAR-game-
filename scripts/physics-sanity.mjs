@@ -163,6 +163,12 @@ export function physicsChecks(stats = CARS[0].stats, label = CARS[0].name) {
     run(g, 3, () => ({ throttle: 1, surface: SURFACES.sand }));
     add('sand drags', g.u < a.u - 8, `asphalt ${a.u.toFixed(1)} vs sand ${g.u.toFixed(1)}`);
   }
+  // 9. creeping away from rest at full lock goes forward (no tyre-force reverse)
+  {
+    const car = new Vehicle(stats);
+    run(car, 2, () => ({ throttle: 0.15, steer: 1 }));
+    add('full-lock creep moves forward', car.u > 0.8 && car.gear === 1, `u ${car.u.toFixed(2)}`);
+  }
   return out;
 }
 

@@ -485,7 +485,7 @@ function buildStartArea(track, model, theme) {
       pillar.position.set(p.x, model.heightAt(0.5, side * model.wallOffset(0.5)) + height / 2 - 0.4, p.z);
       pillar.castShadow = true;
       group.add(pillar);
-      (track.propBoxes || (track.propBoxes = [])).push({ minX: p.x - 0.45, maxX: p.x + 0.45, minY: pillar.position.y - height / 2, maxY: pillar.position.y + height / 2, minZ: p.z - 0.45, maxZ: p.z + 0.45 });
+      (track.propBoxes || (track.propBoxes = [])).push({ x: p.x, z: p.z, rot: 0, x0: -0.45, x1: 0.45, z0: -0.45, z1: 0.45, minY: pillar.position.y - height / 2, maxY: pillar.position.y + height / 2 });
     }
     model.pointAt(0.5, 0, p);
     const heading = Math.atan2(p.tx, p.tz);

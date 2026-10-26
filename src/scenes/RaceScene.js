@@ -985,7 +985,14 @@ export class RaceScene {
     if (inside) return inside;
     if (this.track.propBoxes) {
       for (const b of this.track.propBoxes) {
-        if (cam.x > b.minX && cam.x < b.maxX && cam.z > b.minZ && cam.z < b.maxZ && cam.y > b.minY && cam.y < b.maxY) return 'prop';
+        if (cam.y < b.minY || cam.y > b.maxY) continue;
+        const dx = cam.x - b.x;
+        const dz = cam.z - b.z;
+        const c = Math.cos(b.rot);
+        const sn = Math.sin(b.rot);
+        const lx = dx * c - dz * sn;
+        const lz = dx * sn + dz * c;
+        if (lx > b.x0 && lx < b.x1 && lz > b.z0 && lz < b.z1) return 'prop';
       }
     }
     return false;
