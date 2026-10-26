@@ -1,0 +1,28 @@
+/* Colour tokens. Base graphite palette (Night Highway values) plus three
+   semantic racing tokens. Component CSS must reference these, never raw hex. */
+:root {
+  /* base */
+  --void: #0D1117;
+  --slate: #161B22;
+  --asphalt: #1C2128;
+  --edge: #30363D;
+  --chalk: #E6EDF3;
+  --ash: #8B949E;
+  --red: #F85149;
+
+  /* racing semantics: each means one thing only */
+  --info-blue: #18B7FF;   /* selection, information, boost pads, mini-map player */
+  --good-green: #3DFF8F;  /* best sector / lap, positive delta, drift bank */
+  --warn-amber: #FFB800;  /* hazards, penalties, wrong way */
+
+  /* derived roles */
+  --bg-app: var(--void);
+  --bg-surface: var(--slate);
+  --bg-panel: var(--asphalt);
+  --border: var(--edge);
+  --text-primary: var(--chalk);
+  --text-secondary: var(--ash);
+  --accent: var(--red);
+  --text-on-accent: var(--void);
+  --focus-ring: var(--chalk);
+}

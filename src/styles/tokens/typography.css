@@ -1,0 +1,32 @@
+/* Type scale. Anton for display / numeric readouts, JetBrains Mono for labels. */
+:root {
+  --fs-hero: 112px;
+  --fs-display-1: 72px;
+  --fs-display-2: 48px;
+  --fs-display-3: 32px;
+  --fs-display-4: 24px;
+
+  --fs-label-lg: 14px;
+  --fs-label-md: 12px;
+  --fs-label-sm: 11px;
+  --fs-label-xs: 10px;
+
+  --lh-display: 0.92;
+  --lh-label: 1.35;
+
+  --tracking-display: -0.01em;
+  --tracking-label: 0.18em;
+
+  --weight-label: 500;
+  --weight-label-strong: 700;
+}
+
+@media (max-width: 720px) {
+  :root {
+    --fs-hero: 64px;
+    --fs-display-1: 48px;
+    --fs-display-2: 36px;
+    --fs-display-3: 26px;
+    --fs-display-4: 20px;
+  }
+}

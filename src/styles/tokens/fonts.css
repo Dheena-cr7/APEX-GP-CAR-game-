@@ -1,0 +1,7 @@
+/* Font families. The Google Fonts request lives at the top of styles.css
+   (an @import must precede every other rule); these stacks fall back to
+   local faces so the game still reads correctly when the request fails. */
+:root {
+  --font-display: 'Anton', 'Impact', 'Haettenschweiler', 'Arial Narrow Bold', 'Arial Black', sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', 'Consolas', 'SFMono-Regular', 'Menlo', monospace;
+}

@@ -1,0 +1,20 @@
+/* Surfaces: hard edges only. Radius 0 or 2px, hairline borders, one hard
+   offset shadow. No blur, no gradients, no soft shadows. */
+:root {
+  --radius-0: 0;
+  --radius-1: 2px;
+
+  --hairline: 1px solid var(--edge);
+  --hairline-strong: 1px solid var(--ash);
+  --shadow-hard: 4px 4px 0 var(--void);
+  --shadow-hard-accent: 4px 4px 0 var(--red);
+
+  --surface-overlay: rgba(13, 17, 23, 0.82);
+  --surface-dim: rgba(13, 17, 23, 0.6);
+
+  --focus-width: 2px;
+  --focus-offset: 2px;
+
+  --hazard-stripe: repeating-linear-gradient(135deg, var(--chalk) 0 10px, var(--red) 10px 20px);
+  --hazard-stripe-amber: repeating-linear-gradient(135deg, var(--warn-amber) 0 10px, var(--void) 10px 20px);
+}

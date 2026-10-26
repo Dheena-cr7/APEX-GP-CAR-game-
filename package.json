@@ -1,0 +1,26 @@
+{
+  "name": "apex-gp",
+  "private": true,
+  "version": "1.0.0",
+  "description": "APEX GP - low-poly 3D formula racing and drift game for the browser",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "oxlint --deny-warnings src scripts",
+    "verify": "node scripts/verify.mjs",
+    "perf": "node scripts/perf.mjs"
+  },
+  "dependencies": {
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "oxlint": "1.88.0",
+    "playwright": "1.64.1",
+    "vite": "8.3.4"
+  }
+}

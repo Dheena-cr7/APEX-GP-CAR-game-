@@ -1,0 +1,109 @@
+/* Screens: styleguide, error, boot. Menu screens are appended below. */
+
+/* ---------- styleguide ---------- */
+.styleguide {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: var(--sp-10) var(--sp-6) var(--sp-16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-10);
+}
+.sg-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.sg-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: var(--hairline);
+}
+.sg-section__title { margin: 0; }
+.sg-section__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.sg-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.sg-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--sp-4);
+}
+.sg-grid .panel { display: flex; flex-direction: column; gap: var(--sp-3); }
+.sg-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--sp-4);
+}
+.sg-swatches {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: var(--sp-3);
+}
+.sg-swatch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.sg-swatch__chip {
+  display: block;
+  height: 56px;
+  border: var(--hairline);
+}
+.sg-flush-demo { padding: var(--panel-pad-y) var(--panel-pad-x); border-top: var(--hairline); }
+.sg-blink { animation: var(--blink-hazard); }
+
+/* ---------- full-screen message (boot / error) ---------- */
+.screen-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-6);
+  background: var(--bg-app);
+  z-index: 100;
+}
+.error-card {
+  width: min(560px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.error-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+.error-card__detail {
+  font-family: var(--font-mono);
+  font-size: var(--fs-label-xs);
+  color: var(--ash);
+  background: var(--void);
+  border: var(--hairline);
+  padding: var(--sp-2) var(--sp-3);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow: auto;
+  margin: 0;
+}
+.boot-screen__bar {
+  width: 240px;
+  height: 4px;
+  background: var(--edge);
+}
+.boot-screen__fill {
+  height: 100%;
+  width: 0;
+  background: var(--chalk);
+}
