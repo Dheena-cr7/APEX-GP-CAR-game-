@@ -74,7 +74,10 @@ export class MenuUI {
   }
 
   toast(text, tone = 'neutral') {
-    this.toasts.show(text, tone);
+    // during a race, messages go to the HUD's own stack (top centre)
+    const p = this.game.store.phase;
+    if (this.game.race && this.game.race.hud && (p === 'racing' || p === 'countdown')) this.game.race.hud.toast(text, tone);
+    else this.toasts.show(text, tone);
   }
 
   click() {
@@ -265,6 +268,11 @@ export class MenuUI {
           onSelect: () => {
             if (!unlocked) {
               this.toast(`Earn ${CIRCUIT_UNLOCK[cid]} stars to unlock ${c.name}`, 'warn');
+              return;
+            }
+            // a second click on the selected level starts it
+            if (this.selectedLevel === lvl.id && card.classList.contains('is-selected')) {
+              this._startLevel(lvl);
               return;
             }
             this.click();
@@ -537,6 +545,15 @@ export class MenuUI {
         lockText: lk ? `${c.unlock.stars} ★` : '',
         selected: i === this.garageIndex,
         onSelect: () => {
+          // a second click on the shown car equips it (same as Select car)
+          if (i === this.garageIndex && !lk) {
+            this._selectCar(this.game.store.state);
+            return;
+          }
+          if (i === this.garageIndex) {
+            this.toast(`${c.name} unlocks at ${c.unlock.stars} stars`, 'warn');
+            return;
+          }
           this.click();
           this.garageIndex = i;
           this.garageLivery = null;

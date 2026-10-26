@@ -6,7 +6,7 @@ import { CheckpointSystem } from '../tracks/CheckpointSystem.js';
 import { RacingLine } from '../tracks/RacingLine.js';
 import { ObstacleSystem } from '../tracks/ObstacleSystem.js';
 import { Vehicle } from '../cars/VehiclePhysics.js';
-import { CarView } from '../cars/CarFactory.js';
+import { CarView, makeGhost } from '../cars/CarFactory.js';
 import { CARS, getCar } from '../cars/CarData.js';
 import { DriftSystem } from '../cars/DriftSystem.js';
 import { SURFACES, PHYSICS } from '../cars/PhysicsConfig.js';
@@ -23,6 +23,8 @@ import { MiniMap } from '../ui/MiniMap.js';
 import { createSky, createLights, applyFog, followLight, disposeObject } from './SceneKit.js';
 import { LIVERIES, THEMES } from '../core/Palette.js';
 import { createRng } from '../core/Random.js';
+import { GhostRecorder, ghostPose, decodeGhost, encodeGhost } from '../race/Ghost.js';
+
 import { isTouchDevice } from '../controls/InputManager.js';
 
 const FULL_HALF_W = CAR.width / 2;
@@ -116,6 +118,7 @@ export class RaceScene {
     // 5. cars
     yield { progress: 0.82, label: 'Cars' };
     this._buildRacers();
+    if (cfg.mode === 'timetrial') this._buildGhost();
 
     // 6. effects + HUD
     yield { progress: 0.92, label: 'Effects' };
@@ -197,6 +200,22 @@ export class RaceScene {
       });
       this.racers.push(racer);
     }
+  }
+
+  /** Time Trial ghost: best flying lap (saved or from this session). */
+  _buildGhost() {
+    this.ghostRec = new GhostRecorder();
+    const saved = this.game.save.data.ghosts[this.def.id];
+    this.ghostLap = saved ? decodeGhost(saved.lap) : null;
+    this.ghostTime = this.ghostLap ? saved.time : 0;
+    this.newGhost = null;
+    const car = getCar(saved && saved.carId ? saved.carId : this.config.carId);
+    this.ghostView = new CarView(car, saved && saved.livery ? saved.livery : car.defaultLivery, { castShadow: false });
+    makeGhost(this.ghostView);
+    this.ghostView.root.visible = false;
+    this.scene.add(this.ghostView.root);
+    this.ghostRecording = false;
+    this._ghostPose = { x: 0, y: 0, z: 0, h: 0 };
   }
 
   _buildHUD() {
@@ -296,6 +315,10 @@ export class RaceScene {
     this.resultsSent = false;
     this.tokens = 0;
     this.debug.maxPenetration = 0;
+    if (this.ghostRec) {
+      this.ghostRecording = false;
+      this.ghostView.root.visible = false;
+    }
     this.hud.toasts.clear();
     this.hud.hintTime = 6;
     this.game.input.releaseAll();
@@ -345,6 +368,7 @@ export class RaceScene {
       if (drive) this._raceLogic(r, dt);
     }
     this._slipstream();
+    if (this.ghostRec && this.ghostRecording && drive) this.ghostRec.record(dt, this.player.vehicle);
     if (drive) {
       const p = this.player;
       const onTrack = Math.abs(p.proj.t) <= this.model.halfWidthAt(p.proj.s) + KERB.width + 0.6;
@@ -667,6 +691,7 @@ export class RaceScene {
     }
     if (ev.type === 'lap') {
       const res = t.lap(man.time);
+      if (r.isPlayer && this.ghostRec) this._ghostLap(res);
       const total = this.config.laps;
       if (r.isPlayer) {
         this.game.audio.play('lap');
@@ -681,6 +706,22 @@ export class RaceScene {
       }
       if (total > 0 && r.cp.laps >= total) man.finish(r);
     }
+  }
+
+  _ghostLap(res) {
+    // laps after the first are flying laps: those are the ones a ghost replays
+    if (this.ghostRecording) {
+      const lap = this.ghostRec.toLap();
+      if (lap && (!this.ghostTime || res.time < this.ghostTime)) {
+        this.ghostLap = lap;
+        this.ghostTime = res.time;
+        this.newGhost = { lap, time: res.time };
+        this.hud.toast('New ghost', 'info');
+      }
+    }
+    this.ghostRec.begin();
+    this.ghostRecording = true;
+    this.ghostLapStart = this.manager.time;
   }
 
   _raceEvent(e) {
@@ -763,6 +804,7 @@ export class RaceScene {
     pose.h = pv.ph + (pv.h - pv.ph) * a;
     pose.speed = pv.speed;
     pose.slip = pv.u > 3 ? pv.slip : 0;
+    if (this.ghostView) this._placeGhost();
     if (!this.paused) this.rig.update(pose, dt);
     this.sky.position.copy(this.camera.position);
     // never film through another car: hide any rival whose body reaches the camera
@@ -786,6 +828,22 @@ export class RaceScene {
       this.resultsSent = true;
       if (this.onFinished) this.onFinished(this.buildResults());
     }
+  }
+
+  _placeGhost() {
+    const gv = this.ghostView;
+    if (!this.ghostLap || !this.ghostRecording || this.player.finished) {
+      gv.root.visible = false;
+      return;
+    }
+    const gp = this._ghostPose;
+    if (!ghostPose(this.ghostLap, this.manager.time - this.ghostLapStart, gp)) {
+      gv.root.visible = false;
+      return;
+    }
+    gv.root.visible = true;
+    gv.root.position.set(gp.x, gp.y, gp.z);
+    gv.root.rotation.set(0, gp.h, 0);
   }
 
   _fx(dt) {
@@ -928,6 +986,10 @@ export class RaceScene {
 
   _audio() {
     const v = this.player.vehicle;
+    if (v.events.driftStart !== this._lastDriftStart) {
+      this._lastDriftStart = v.events.driftStart;
+      if (v.events.driftStart > 0) this.game.input.rumble(0.15, 0.35, 140);
+    }
     this.game.audio.updateCar(v, this.manager.state === 'countdown');
   }
 
@@ -948,6 +1010,7 @@ export class RaceScene {
       carId: p.carDef.id,
     };
     extra.bestSplits = p.timer.bestCp ? Array.from(p.timer.bestCp) : null;
+    if (this.newGhost) extra.ghost = { lap: encodeGhost(this.newGhost.lap), time: Math.round(this.newGhost.time * 1000) / 1000, carId: p.carDef.id, livery: p.view.liveryId };
     if (this.drift.current > 0) this.drift.bank();
     extra.driftScore = Math.round(this.drift.banked);
     return this.manager.buildResults(p, extra);
@@ -1059,6 +1122,7 @@ export class RaceScene {
     this.ready = false;
     for (const r of this.racers) r.view.dispose();
     this.racers.length = 0;
+    if (this.ghostView) this.ghostView.dispose();
     if (this.track) this.track.dispose();
     if (this.obstacles) this.obstacles.dispose();
     if (this.particles) this.particles.dispose();

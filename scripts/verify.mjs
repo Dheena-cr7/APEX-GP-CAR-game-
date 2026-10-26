@@ -553,6 +553,386 @@ async function main() {
         await context.close();
       }
     }
+
+    // ---------------------------------------------------------------- systems (phase 7)
+    if (want('systems')) {
+      // --- every button on every screen does something (no dead ends) ---
+      {
+        const { page, context, problems } = await openGame(browser, server);
+        const sig = () =>
+          page.evaluate(() => {
+            const g = window.__apex.game;
+            const st = g.store.state;
+            const html = document.querySelector('.menu-layer').innerHTML;
+            let hsh = 0;
+            for (let i = 0; i < html.length; i++) hsh = (hsh * 31 + html.charCodeAt(i)) | 0;
+            return JSON.stringify([st.phase, st.screen, !!g.ui.overlay, g.ui.toasts.items.length, hsh, JSON.stringify(g.save.data), g.ui.garageIndex, g.ui.garageLivery, JSON.stringify(g.ui.setup)]);
+          });
+        const screens = [
+          ['main', () => window.__apex.go('menu', { screen: 'main' })],
+          ['mode', () => window.__apex.go('select', { screen: 'mode', mode: 'grandprix' })],
+          ['track', () => window.__apex.go('select', { screen: 'track', mode: 'grandprix' })],
+          ['campaign', () => window.__apex.go('select', { screen: 'track', mode: 'campaign' })],
+          ['setup', () => window.__apex.go('select', { screen: 'setup', mode: 'grandprix' })],
+          ['garage', () => window.__apex.go('garage', { returnTo: 'menu' })],
+        ];
+        const dead = [];
+        let total = 0;
+        for (const [name, goFn] of screens) {
+          await page.evaluate(() => {
+            const g = window.__apex.game;
+            g.ui.closeOverlay(false);
+            if (g.store.phase !== 'menu') g.store.go('menu', { screen: 'main' });
+          });
+          await page.evaluate(goFn);
+          await page.clock.runFor(100);
+          const count = await page.locator('.menu-layer button').count();
+          for (let i = 0; i < count; i++) {
+            await page.evaluate(() => {
+              const g = window.__apex.game;
+              g.ui.closeOverlay(false);
+              if (g.store.phase !== 'menu') g.store.go('menu', { screen: 'main' });
+            });
+            await page.evaluate(goFn);
+            await page.clock.runFor(60);
+            const btn = page.locator('.menu-layer button').nth(i);
+            if (!(await btn.isVisible())) continue;
+            const label = ((await btn.textContent()) || '').trim().slice(0, 30);
+            // an already-selected radio option is not a dead button
+            const disabled = await btn.evaluate((b) => b.disabled || b.getAttribute('aria-disabled') === 'true' || (b.getAttribute('role') === 'radio' && b.getAttribute('aria-checked') === 'true'));
+            const before = await sig();
+            await btn.click({ force: true });
+            await page.clock.runFor(120);
+            const after = await sig();
+            total++;
+            // a locked card / disabled button must at least explain itself (toast) — counted by the signature too
+            if (before === after && !disabled) dead.push(`${name}:${label}`);
+            // starting a race: back out
+            const ph = await page.evaluate(() => window.__apex.ready());
+            if (ph === 'loading' || ph === 'countdown') {
+              await waitPhase(page, 'countdown', 3000);
+              await page.evaluate(() => window.__apex.game.quitToMenu());
+              await page.clock.runFor(48);
+            }
+          }
+        }
+        check('every menu button does something (no dead buttons)', dead.length === 0, dead.length ? dead.join(', ') : `${total} buttons clicked`);
+        // keyboard: arrows move focus, Enter activates, Esc goes back
+        await page.evaluate(() => window.__apex.go('menu', { screen: 'main', mode: 'campaign' }));
+        await page.clock.runFor(60);
+        await page.keyboard.press('ArrowDown');
+        const focused = await page.evaluate(() => document.activeElement && document.activeElement.textContent);
+        await page.keyboard.press('ArrowUp');
+        await page.keyboard.press('Enter');
+        await page.clock.runFor(60);
+        await page.keyboard.press('ArrowRight');
+        await page.keyboard.press('Enter');
+        await page.clock.runFor(100);
+        const st1 = await page.evaluate(() => window.__apex.getState());
+        await page.keyboard.press('Enter');
+        await page.clock.runFor(100);
+        const st2 = await page.evaluate(() => window.__apex.getState());
+        check('keyboard menu flow: arrows move focus, Enter selects (main → mode → Grand Prix → circuit)', /Garage|Quick|Settings|Controls/i.test(focused || '') && st1.screen === 'track' && st1.mode === 'grandprix' && st2.screen === 'setup', `${(focused || '').trim()} → ${st1.screen}/${st1.mode} → ${st2.screen}`);
+        await page.keyboard.press('Enter');
+        const raced = await waitPhase(page, 'countdown', 3000);
+        check('Enter on setup starts the race', raced);
+        // pause menu by keyboard
+        await page.keyboard.press('Escape');
+        await page.clock.runFor(60);
+        const paused = (await page.evaluate(() => window.__apex.ready())) === 'paused';
+        await page.keyboard.press('Escape');
+        await page.clock.runFor(60);
+        const resumed = await page.evaluate(() => window.__apex.ready());
+        check('Esc pauses and Esc resumes', paused && (resumed === 'countdown' || resumed === 'racing'), resumed);
+        // pause screen buttons
+        await waitFor(page, () => window.__apex.ready() === 'racing', null, 800);
+        await page.keyboard.press('Escape');
+        await page.clock.runFor(60);
+        const pauseButtons = await page.locator('.pause .btn').allTextContents();
+        await page.locator('.pause .btn', { hasText: 'Settings' }).click();
+        await page.clock.runFor(60);
+        const settingsOpen = await page.evaluate(() => !!window.__apex.game.ui.overlay);
+        await page.keyboard.press('Escape');
+        await page.clock.runFor(60);
+        const backToPause = await page.evaluate(() => window.__apex.ready() === 'paused' && !window.__apex.game.ui.overlay);
+        await page.locator('.pause .btn', { hasText: 'Controls' }).click();
+        await page.clock.runFor(60);
+        const controlsOpen = await page.evaluate(() => !!document.querySelector('.controls-guide'));
+        await page.keyboard.press('Escape');
+        await page.clock.runFor(60);
+        await page.locator('.pause .btn', { hasText: 'Quit' }).click();
+        await page.clock.runFor(60);
+        const confirm = await page.evaluate(() => !!document.querySelector('.confirm'));
+        await page.keyboard.press('Escape');
+        await page.clock.runFor(60);
+        const stillPaused = await page.evaluate(() => window.__apex.ready() === 'paused');
+        await page.locator('.pause .btn', { hasText: 'Restart' }).click();
+        await page.clock.runFor(60);
+        const restarted = await page.evaluate(() => window.__apex.ready() === 'countdown');
+        check('pause menu: settings, controls, quit-confirm (Esc cancels), restart all work', settingsOpen && backToPause && controlsOpen && confirm && stillPaused && restarted, `${pauseButtons.length} buttons; settings ${settingsOpen}, back ${backToPause}, controls ${controlsOpen}, confirm ${confirm}, cancel ${stillPaused}, restart ${restarted}`);
+        await page.keyboard.press('Escape');
+        await page.clock.runFor(60);
+        await page.locator('.pause .btn', { hasText: 'Quit' }).click();
+        await page.clock.runFor(60);
+        await page.locator('.confirm .btn--primary').click();
+        await page.clock.runFor(100);
+        check('quit to menu (confirmed) returns to the main menu and disposes the race', await page.evaluate(() => window.__apex.ready() === 'menu' && !window.__apex.game.race));
+        check('menus: console clean', problems.length === 0, formatProblems(problems));
+        await context.close();
+      }
+
+      // --- pause freezes sim + audio, camera modes, resize, blur / hidden tab ---
+      {
+        const { page, context, problems } = await openGame(browser, server);
+        await page.keyboard.press('KeyN'); // a trusted gesture unlocks audio (N is unbound)
+        await page.evaluate(() => window.__apex.startRace({ circuitId: 'speed', mode: 'practice', laps: 0 }));
+        await waitPhase(page, 'countdown', 3000);
+        await waitFor(page, () => window.__apex.getCar().raceState === 'running', null, 800);
+        await page.keyboard.down('KeyW');
+        await page.clock.runFor(16 * 120);
+        const a0 = await page.evaluate(() => ({ car: window.__apex.getCar(), audio: window.__apex.game.audio.ctx ? window.__apex.game.audio.ctx.state : 'none', engine: !!window.__apex.game.audio.engine }));
+        await page.keyboard.up('KeyW');
+        await page.evaluate(() => window.__apex.game.requestPause());
+        await page.clock.runFor(16 * 5);
+        const p0 = await page.evaluate(() => window.__apex.getCar());
+        await page.clock.runFor(2000);
+        const p1 = await page.evaluate(() => ({ car: window.__apex.getCar(), audio: window.__apex.game.audio.ctx ? window.__apex.game.audio.ctx.state : 'none' }));
+        check('pause freezes the simulation (2 s paused: no time, no movement)', p0.raceTime === p1.car.raceTime && p0.x === p1.car.x && p0.z === p1.car.z, `t ${p0.raceTime.toFixed(3)} → ${p1.car.raceTime.toFixed(3)}`);
+        check('audio runs in the race and pause silences it', a0.engine && a0.audio === 'running' && (p1.audio === 'suspended' || p1.audio === 'suspending'), `race ${a0.audio}/engine ${a0.engine}, paused ${p1.audio}`);
+        await page.evaluate(() => window.__apex.game.resume());
+        await page.clock.runFor(16 * 30);
+        const r1 = await page.evaluate(() => ({ car: window.__apex.getCar(), audio: window.__apex.game.audio.ctx.state }));
+        check('resume continues the race and the audio', r1.car.raceTime > p1.car.raceTime && r1.car.raceTime - p1.car.raceTime < 0.6 && r1.audio === 'running', `+${(r1.car.raceTime - p1.car.raceTime).toFixed(3)} s`);
+        // camera modes
+        const modes = [];
+        for (let i = 0; i < 4; i++) {
+          await page.keyboard.press('KeyC');
+          await page.evaluate(() => {
+            window.__apex.setInput({ throttle: 0.7, steer: 0.2 });
+          });
+          let inside = false;
+          for (let f = 0; f < 60; f++) {
+            await page.clock.runFor(16);
+            if (f % 6 === 0) inside = inside || !!(await page.evaluate(() => window.__apex.getCar().camera.inside));
+          }
+          const m = await page.evaluate(() => window.__apex.getCar().camera.mode);
+          modes.push({ m, inside });
+          await shot(page, `50-camera-${m}`);
+        }
+        await page.evaluate(() => window.__apex.setInput(null));
+        check('C cycles all 4 camera modes, none inside geometry', new Set(modes.map((x) => x.m)).size === 4 && modes.every((x) => !x.inside), modes.map((x) => `${x.m}${x.inside ? '(inside!)' : ''}`).join(' → '));
+        // resize keeps the aspect
+        await page.setViewportSize({ width: 800, height: 600 });
+        await page.waitForTimeout(150); // resize events fire on a real rendering frame
+        await page.clock.runFor(48);
+        const s1 = await page.evaluate(() => ({ aspect: window.__apex.game.race.camera.aspect, w: window.__apex.game.canvas.width, h: window.__apex.game.canvas.height }));
+        await shot(page, '51-resize-800x600');
+        await page.setViewportSize({ width: 1600, height: 900 });
+        await page.waitForTimeout(150);
+        await page.clock.runFor(48);
+        const s2 = await page.evaluate(() => ({ aspect: window.__apex.game.race.camera.aspect }));
+        await page.setViewportSize({ width: 1280, height: 720 });
+        await page.waitForTimeout(150);
+        await page.clock.runFor(48);
+        check('resize keeps the camera aspect and canvas size in step', Math.abs(s1.aspect - 800 / 600) < 1e-6 && Math.abs(s2.aspect - 16 / 9) < 1e-6 && Math.abs(s1.w / s1.h - 4 / 3) < 0.01, JSON.stringify([s1, s2]));
+        // blur releases held keys
+        await page.keyboard.down('KeyW');
+        await page.clock.runFor(48);
+        const held = await page.evaluate(() => window.__apex.game.input.state.throttle);
+        await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+        await page.clock.runFor(48);
+        const afterBlur = await page.evaluate(() => window.__apex.game.input.state.throttle);
+        await page.keyboard.up('KeyW');
+        check('window blur releases held inputs', held === 1 && afterBlur === 0, `${held} → ${afterBlur}`);
+        // hidden tab stops the loop; showing it again resumes without a time jump
+        const h0 = await page.evaluate(() => ({ f: window.__apex.game.loop.frameCount, t: window.__apex.getCar().raceTime }));
+        await page.evaluate(() => {
+          Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+          document.dispatchEvent(new Event('visibilitychange'));
+        });
+        await page.clock.runFor(3000);
+        const h1 = await page.evaluate(() => ({ f: window.__apex.game.loop.frameCount, t: window.__apex.getCar().raceTime, phase: window.__apex.ready() }));
+        await page.evaluate(() => {
+          Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+          document.dispatchEvent(new Event('visibilitychange'));
+        });
+        await page.clock.runFor(16 * 10);
+        const h2 = await page.evaluate(() => ({ f: window.__apex.game.loop.frameCount, t: window.__apex.getCar().raceTime, loops: window.__apex.info().loops }));
+        check('hidden tab: loop stops, timers do not run; visible again: resumes without a time jump, one loop', h1.f === h0.f && h1.t === h0.t && h2.f > h1.f && h2.t - h1.t < 0.3 && h2.loops === 1, `frames ${h0.f}→${h1.f}→${h2.f}, race t ${h0.t.toFixed(2)}→${h1.t.toFixed(2)}→${h2.t.toFixed(2)}, ${h1.phase}`);
+        // leaving the race stops and disconnects the engine sound
+        await page.evaluate(() => window.__apex.game.quitToMenu());
+        await page.clock.runFor(48);
+        check('leaving a race stops the engine audio', await page.evaluate(() => window.__apex.game.audio.engine === null));
+        check('pause/camera/resize/visibility: console clean', problems.length === 0, formatProblems(problems));
+        await context.close();
+      }
+
+      // --- saves: restore, corrupt, wrong types, blocked storage ---
+      {
+        const { page, context, problems } = await openGame(browser, server);
+        await page.evaluate(() => {
+          const g = window.__apex.game;
+          g.save.update((d) => {
+            d.settings.units = 'mph';
+            d.stars['beginner-grandprix'] = 2;
+            d.bestLaps['beginner:timetrial'] = 55.5;
+            d.carId = 'comet';
+          });
+        });
+        await page.reload();
+        await waitFor(page, () => !!window.__apex && window.__apex.ready() === 'menu');
+        const restored = await page.evaluate(() => window.__apex.save());
+        check('save/restore across a reload (settings, stars, best laps, car)', restored.settings.units === 'mph' && restored.stars['beginner-grandprix'] === 2 && restored.bestLaps['beginner:timetrial'] === 55.5 && restored.carId === 'comet');
+        await page.evaluate(() => localStorage.setItem('apexgp.save', '{"version":2,"settings":{"quality":'));
+        await page.reload();
+        const okCorrupt = await waitFor(page, () => !!window.__apex && window.__apex.ready() === 'menu');
+        const afterCorrupt = await page.evaluate(() => ({ s: window.__apex.save(), err: window.__apex.game.save.loadError }));
+        check('corrupt save JSON → defaults, game boots', okCorrupt && afterCorrupt.err === 'corrupt' && afterCorrupt.s.carId === 'falcon', `loadError ${afterCorrupt.err}`);
+        await page.evaluate(() => localStorage.setItem('apexgp.save', JSON.stringify({ version: 1, carId: 7, settings: { quality: 'ultra', master: 'loud', camera: 'drone' }, stars: { a: 'x', b: 9, c: 2 }, unlockedCars: 'all', records: null })));
+        await page.reload();
+        await waitFor(page, () => !!window.__apex && window.__apex.ready() === 'menu');
+        const typed = await page.evaluate(() => window.__apex.save());
+        check('wrong-typed save fields are validated field by field', typed.carId === 'falcon' && typed.settings.quality === 'high' && typed.settings.camera === 'chase' && typed.stars.c === 2 && !('a' in typed.stars) && !('b' in typed.stars) && Array.isArray(typed.unlockedCars), JSON.stringify({ q: typed.settings.quality, stars: typed.stars }));
+        check('saves: console clean', problems.length === 0, formatProblems(problems));
+        await context.close();
+        // blocked storage
+        const blocked = await newPage(browser, { fakeClock: true });
+        await blocked.page.addInitScript(() => {
+          Object.defineProperty(window, 'localStorage', {
+            configurable: true,
+            get() {
+              throw new DOMException('blocked', 'SecurityError');
+            },
+          });
+        });
+        await blocked.page.goto(`${server.url}?debug&render=manual`);
+        const bootOk = await waitFor(blocked.page, () => !!window.__apex && window.__apex.ready() === 'menu');
+        await blocked.page.addScriptTag({ path: path.join(ROOT, 'scripts', 'verify-autopilot.js') });
+        const badge = await blocked.page.evaluate(() => /storage blocked/i.test(document.body.textContent));
+        await blocked.page.evaluate(() => window.__apex.startRace({ circuitId: 'beginner', mode: 'practice', laps: 0 }));
+        const raceOk = await waitPhase(blocked.page, 'countdown', 3000);
+        await blocked.page.evaluate(() => window.__apex.game.save.update((d) => (d.settings.units = 'mph')));
+        check('blocked localStorage: game boots, races, shows a notice, keeps settings in memory', bootOk && raceOk && badge && (await blocked.page.evaluate(() => window.__apex.save().settings.units === 'mph')));
+        check('blocked storage: console clean', blocked.problems.length === 0, formatProblems(blocked.problems));
+        await blocked.context.close();
+      }
+
+      // --- WebGL failure + context loss ---
+      {
+        const { page, context, problems } = await newPage(browser, { fakeClock: true });
+        await page.goto(`${server.url}?debug&nowebgl`);
+        await page.clock.runFor(100);
+        const msg = await page.evaluate(() => document.body.textContent);
+        await page.screenshot({ path: path.join(SHOTS, '52-no-webgl.png') });
+        report.shots.push('52-no-webgl.png');
+        check('simulated WebGL failure shows the friendly error', /WebGL not available/i.test(msg) && /Try again/i.test(msg));
+        check('no-WebGL page: console clean', problems.length === 0, formatProblems(problems));
+        await context.close();
+      }
+      {
+        const { page, context, problems } = await openGame(browser, server);
+        await page.evaluate(() => window.__apex.startRace({ circuitId: 'beginner', mode: 'practice', laps: 0 }));
+        await waitPhase(page, 'countdown', 3000);
+        await page.evaluate(() => {
+          window.__lose = window.__apex.game.renderer.getContext().getExtension('WEBGL_lose_context');
+          window.__lose.loseContext();
+        });
+        await page.clock.runFor(200);
+        const lost = await page.evaluate(() => ({ text: document.body.textContent, running: window.__apex.game.loop.running }));
+        await shot(page, '53-context-lost', { render: false });
+        await page.evaluate(() => window.__lose.restoreContext());
+        await page.clock.runFor(400);
+        const back = await page.evaluate(() => ({ text: document.body.textContent, running: window.__apex.game.loop.running, lost: window.__apex.game.contextLost }));
+        check('WebGL context loss shows a notice and pauses; restore resumes', /Graphics reset/i.test(lost.text) && !lost.running && back.running && !back.lost && !/Graphics reset/i.test(back.text));
+        // Chrome itself logs a CONTEXT_LOST_WEBGL warning when the context is deliberately lost; nothing else may appear
+        const other = problems.filter((p) => !/CONTEXT_LOST_WEBGL|context lost|WebGL context was lost/i.test(p.text));
+        check('context loss: no errors besides the browser’s own context-lost notice', other.length === 0, formatProblems(other));
+        await context.close();
+      }
+
+      // --- gamepad (Standard Gamepad API, faked) ---
+      {
+        const ctx = await newPage(browser, { fakeClock: true });
+        await ctx.page.addInitScript(() => {
+          const pad = { id: 'Fake Standard Gamepad', index: 0, connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons: Array.from({ length: 17 }, () => ({ pressed: false, value: 0 })) };
+          window.__pad = pad;
+          window.__padPress = (i, v = 1) => {
+            pad.buttons[i].pressed = v > 0.5;
+            pad.buttons[i].value = v;
+          };
+          navigator.getGamepads = () => [pad];
+        });
+        const { page, context, problems } = ctx;
+        await page.goto(`${server.url}?debug&render=manual`);
+        await waitFor(page, () => !!window.__apex && window.__apex.ready() === 'menu');
+        // A on the main menu = focused / primary (Drive)
+        await page.evaluate(() => window.__padPress(0, 1));
+        await page.clock.runFor(48);
+        await page.evaluate(() => window.__padPress(0, 0));
+        await page.clock.runFor(48);
+        const afterA = await page.evaluate(() => window.__apex.getState().phase);
+        // B = back
+        await page.evaluate(() => window.__padPress(1, 1));
+        await page.clock.runFor(48);
+        await page.evaluate(() => window.__padPress(1, 0));
+        await page.clock.runFor(48);
+        const afterB = await page.evaluate(() => window.__apex.getState().phase);
+        check('gamepad A confirms and B goes back in menus', afterA === 'select' && afterB === 'menu', `${afterA} → ${afterB}`);
+        await page.evaluate(() => window.__apex.startRace({ circuitId: 'beginner', mode: 'practice', laps: 0 }));
+        await waitPhase(page, 'countdown', 3000);
+        await waitFor(page, () => window.__apex.getCar().raceState === 'running', null, 800);
+        await page.evaluate(() => {
+          window.__padPress(7, 1); // RT
+          window.__pad.axes[0] = 0.6;
+        });
+        await page.clock.runFor(16 * 90);
+        const drive = await page.evaluate(() => ({ speed: window.__apex.getCar().speed, steer: window.__apex.game.input.state.steer }));
+        await page.evaluate(() => {
+          window.__padPress(7, 0);
+          window.__pad.axes[0] = 0;
+          window.__padPress(9, 1); // Start
+        });
+        await page.clock.runFor(48);
+        await page.evaluate(() => window.__padPress(9, 0));
+        await page.clock.runFor(48);
+        const pausedPad = await page.evaluate(() => window.__apex.ready());
+        check('gamepad RT accelerates, left stick steers (dead zone applied), Start pauses', drive.speed > 10 && drive.steer > 0.3 && drive.steer < 0.6 && pausedPad === 'paused', `speed ${drive.speed.toFixed(1)}, steer ${drive.steer.toFixed(2)}, ${pausedPad}`);
+        check('gamepad: console clean', problems.length === 0, formatProblems(problems));
+        await context.close();
+      }
+
+      // --- touch device: on-screen controls, phone-width layout ---
+      {
+        const context = await browser.newContext({ viewport: { width: 844, height: 390 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
+        const page = await context.newPage();
+        const problems = [];
+        page.on('console', (m) => (m.type() === 'error' || m.type() === 'warning') && problems.push({ type: m.type(), text: m.text() }));
+        page.on('pageerror', (e) => problems.push({ type: 'pageerror', text: String(e) }));
+        await page.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.fulfill({ status: 200, contentType: 'text/css', body: '' }));
+        await page.clock.install({ time: Date.parse('2026-01-01T00:00:00Z') });
+        await page.clock.pauseAt(Date.parse('2026-01-01T00:00:01Z'));
+        await page.goto(`${server.url}?debug&render=manual`);
+        await waitFor(page, () => !!window.__apex && window.__apex.ready() === 'menu');
+        await shot(page, '54-phone-menu');
+        await page.evaluate(() => window.__apex.startRace({ circuitId: 'beginner', mode: 'practice', laps: 0 }));
+        await waitPhase(page, 'countdown', 3000);
+        await waitFor(page, () => window.__apex.getCar().raceState === 'running', null, 800);
+        const hasTouchUi = await page.evaluate(() => !!document.querySelector('.touch .touch-btn'));
+        const gas = page.locator('.touch-btn[aria-label="throttle"]');
+        const box = await gas.boundingBox();
+        await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+        await gas.dispatchEvent('pointerdown', { pointerId: 1, pointerType: 'touch', isPrimary: true });
+        await page.clock.runFor(16 * 90);
+        const speed = await page.evaluate(() => window.__apex.getCar().speed);
+        await shot(page, '55-phone-race');
+        await gas.dispatchEvent('pointerup', { pointerId: 1, pointerType: 'touch', isPrimary: true });
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth);
+        check('touch device: on-screen controls appear and drive the car', hasTouchUi && speed > 8, `speed ${speed.toFixed(1)}`);
+        check('phone width: no horizontal page scroll', !overflow);
+        check('touch: console clean', problems.length === 0, formatProblems(problems));
+        await context.close();
+      }
+    }
   } catch (err) {
     check('verify run', false, String(err && err.stack ? err.stack : err));
   } finally {

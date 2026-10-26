@@ -260,3 +260,26 @@ export class CarView {
     if (this.root.parent) this.root.parent.remove(this.root);
   }
 }
+
+/** Turn a CarView into a translucent, shadowless ghost (own materials). */
+export function makeGhost(view) {
+  const mats = [view.bodyMat];
+  view.bodyMat.transparent = true;
+  view.bodyMat.opacity = 0.32;
+  view.bodyMat.depthWrite = false;
+  const wheelMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, transparent: true, opacity: 0.32, depthWrite: false });
+  for (const w of view.wheels) {
+    w.mesh.material = wheelMat;
+    w.mesh.castShadow = false;
+  }
+  mats.push(wheelMat);
+  view.body.castShadow = false;
+  view.brakeLight.visible = false;
+  view.ghostMats = mats;
+  const dispose = view.dispose.bind(view);
+  view.dispose = () => {
+    wheelMat.dispose();
+    dispose();
+  };
+  return view;
+}

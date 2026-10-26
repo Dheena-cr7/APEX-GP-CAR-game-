@@ -478,3 +478,13 @@
   .screen__corner { display: none; }
   .car-strip { grid-template-columns: repeat(6, 150px); }
 }
+
+/* short screens: the hero card scrolls instead of being cut off */
+@media (max-height: 560px) {
+  .screen--main { justify-content: flex-start; }
+  .hero-card { padding: var(--sp-4); gap: var(--sp-2); }
+  .hero-card__title { font-size: var(--fs-display-1); }
+  .hero-card .t-body { display: none; }
+  .hero-card .btn--lg { height: 44px; }
+  .screen__corner { display: none; }
+}

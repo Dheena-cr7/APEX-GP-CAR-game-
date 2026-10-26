@@ -170,6 +170,10 @@ export function applyResults(saveMgr, results, config) {
       if (results.bestSplits) d.bestSplits[key] = results.bestSplits.map((x) => Math.round(x * 1000) / 1000);
       out.records.bestLap = true;
     }
+    if (results.ghost && config.mode === 'timetrial') {
+      const old = d.ghosts[config.circuitId];
+      if (!old || results.ghost.time < old.time) d.ghosts[config.circuitId] = results.ghost;
+    }
     if (results.driftScore > 0 && (!d.bestDrift[key] || results.driftScore > d.bestDrift[key])) {
       d.bestDrift[key] = results.driftScore;
       out.records.drift = true;

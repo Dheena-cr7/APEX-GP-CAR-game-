@@ -98,6 +98,7 @@ export class Game {
       this._leaveRace();
       this.audio.stopMusic();
       this.race = new RaceScene(this, state.raceConfig);
+      this.race.rig.setAspect(this.aspect || window.innerWidth / Math.max(1, window.innerHeight));
       this.race.onFinished = (res) => this._onRaceFinished(res);
       this.loader = this.race.load();
       this.loadProgress = 0;

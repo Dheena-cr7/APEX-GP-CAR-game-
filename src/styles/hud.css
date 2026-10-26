@@ -388,3 +388,40 @@
 
 body.has-touch .hud__hints { display: none; }
 body.has-touch .hud__bc { bottom: calc(var(--hud-gutter) + 130px); }
+
+/* short landscape screens (phones): compact HUD, speed cluster moves to the top */
+@media (max-height: 520px) {
+  :root { --hud-gutter: 10px; }
+  .hud .panel { padding: var(--sp-2) var(--sp-3); }
+  .hud__tl .stat--lg .stat__value { font-size: var(--fs-display-3); }
+  .hud__tl .badge { display: none; }
+  .hud__tr { min-width: 0; gap: var(--sp-1); }
+  .hud__tr .stat--md .stat__value { font-size: var(--fs-display-4); }
+  .hud__sectors,
+  .hud__tr .hud__row,
+  .hud__delta { display: none; }
+  body .hud .hud__bc {
+    top: var(--hud-gutter);
+    bottom: auto;
+    padding: var(--sp-1) var(--sp-3);
+    gap: var(--sp-1);
+  }
+  .hud__speed-value { font-size: var(--fs-display-3); min-width: 2.5ch; }
+  .hud__gear { font-size: var(--fs-display-4); }
+  .hud__gear-box { padding-left: var(--sp-2); }
+  .hud__rpm { grid-template-columns: repeat(16, 6px); height: 5px; }
+  .hud__boost { display: none; }
+  .hud__map { display: none; }
+  .hud__br { display: none; }
+  .hud__hints { display: none; }
+  .hud__drift { top: 30%; }
+  .hud__drift-points { font-size: var(--fs-display-4); }
+  .hud__center { top: 26%; }
+  .hud__big { font-size: var(--fs-display-2); }
+  .hud__lights { top: 64px; }
+  .touch-btn { min-width: 64px; height: 60px; }
+  .touch-btn--tall { height: 96px; }
+  .touch-btn--sm { height: 46px; }
+  .touch-btn--pause { top: auto; bottom: calc(var(--hud-gutter) + 4px); right: auto; left: 50%; transform: translateX(-50%); }
+}
+body.has-touch .hud__map { display: none; }

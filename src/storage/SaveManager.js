@@ -29,6 +29,7 @@ export function defaultSave() {
     bestLaps: {}, // `${trackId}:${mode}` -> seconds
     bestDrift: {}, // `${trackId}:${mode}` -> points
     bestSplits: {}, // `${trackId}:${mode}` -> checkpoint times of the best lap
+    ghosts: {}, // trackId -> {lap:{rate,count,data}, time, carId, livery} (Time Trial)
     records: { races: 0, wins: 0, distance: 0, longestDrift: 0 },
     unlockedCars: ['falcon', 'viper', 'comet'],
     unlockedLiveries: ['ember', 'glacier', 'volt', 'graphite'],
@@ -48,6 +49,20 @@ function numberMap(src, lo, hi) {
     if (typeof k !== 'string' || k.length > 64) continue;
     const v = src[k];
     if (typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi) out[k] = v;
+  }
+  return out;
+}
+
+function ghostMap(src) {
+  const out = {};
+  if (!isObj(src)) return out;
+  for (const k of Object.keys(src)) {
+    const g = src[k];
+    if (!isObj(g) || !isObj(g.lap) || typeof g.time !== 'number' || !Number.isFinite(g.time)) continue;
+    const lap = g.lap;
+    if (!Array.isArray(lap.data) || typeof lap.count !== 'number' || lap.count < 2 || lap.count > 6000 || lap.data.length !== lap.count * 4) continue;
+    if (!lap.data.every((x) => typeof x === 'number' && Number.isFinite(x))) continue;
+    out[k] = { lap: { rate: typeof lap.rate === 'number' ? lap.rate : 20, count: lap.count, data: lap.data }, time: g.time, carId: typeof g.carId === 'string' ? g.carId : null, livery: typeof g.livery === 'string' ? g.livery : null };
   }
   return out;
 }
@@ -97,6 +112,7 @@ export function validateSave(raw) {
     bestLaps: numberMap(raw.bestLaps, 1, 36000),
     bestDrift: numberMap(raw.bestDrift, 0, 1e9),
     bestSplits: splitMap(raw.bestSplits),
+    ghosts: ghostMap(raw.ghosts),
     records: {
       races: num(raw.records && raw.records.races, 0, 1e9, 0),
       wins: num(raw.records && raw.records.wins, 0, 1e9, 0),

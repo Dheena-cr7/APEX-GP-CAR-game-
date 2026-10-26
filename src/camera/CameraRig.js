@@ -130,7 +130,7 @@ export class CameraRig {
       cam.position.set(sp.x, sp.y, sp.z);
       cam.lookAt(car.x, car.y + 0.6, car.z);
       const dist = Math.hypot(sp.x - car.x, sp.z - car.z);
-      fov = Math.max(14, Math.min(55, 2400 / Math.max(20, dist)));
+      fov = Math.max(10, Math.min(50, 1100 / Math.max(20, dist)));
     } else {
       const c = this.chase.update(car, dt, this._clamp);
       cam.position.set(c.pos.x, c.pos.y, c.pos.z);
