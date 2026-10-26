@@ -310,6 +310,8 @@ export class RaceScene {
     man.events.length = 0;
     const drive = man.canDrive;
     const input = this.inputOverride || this.game.input.state;
+    // moving obstacles first, so cars resolve against their final pose
+    this.obstacles.step(dt, this.racers);
 
     for (const r of this.racers) {
       const v = r.vehicle;
@@ -341,7 +343,6 @@ export class RaceScene {
       if (drive) this._raceLogic(r, dt);
     }
     this._slipstream();
-    this.obstacles.step(dt);
     if (drive) {
       const p = this.player;
       const onTrack = Math.abs(p.proj.t) <= this.model.halfWidthAt(p.proj.s) + KERB.width + 0.6;

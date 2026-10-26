@@ -28,3 +28,5 @@ One line per non-obvious choice.
 - A jump of more than 60 m between steps (teleport / reset) re-syncs a racer's checkpoint position without registering crossings.
 - Track limits: car centre beyond the kerb for more than 1.6 s = +1 s in timed modes (warning only in practice and drift).
 - Handbrake with steering adds a yaw kick (3.2 rad/s²) so a flick breaks the rear loose in about 0.35 s; without it, drifts took close to a second to start.
+- Moving obstacles update before the cars each step and never crush a car: if a gate, truck or barrel's next pose would overlap a car it holds still that step (a gate pauses, a truck waits). Without this a car could be squeezed between the gate and the barrier.
+- Street GP's crossing truck uses a gap in the barrier and a visual side street; the last-resort track-space clamp is the invisible boundary there, so cars cannot leave through the gap.

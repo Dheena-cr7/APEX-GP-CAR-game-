@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { MeshBuilder, shadeHex } from './MeshBuilder.js';
 import { addBox, addCone, addCylinder } from './PropFactory.js';
 import { SEMANTIC, UI } from '../core/Palette.js';
-import { OBSTACLE } from '../cars/Sizes.js';
+import { OBSTACLE, CAR } from '../cars/Sizes.js';
+import { boxBox, boxCircle } from '../physics/Collision.js';
 import { createRng } from '../core/Random.js';
 
 // Trackside obstacles and interactives. All placements come from TrackData
@@ -20,6 +21,9 @@ const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
 const _axis = new THREE.Vector3();
 const GRAVITY = 9.81;
+const _carBox = { x: 0, z: 0, h: 0, hx: CAR.width / 2 + 0.15, hz: CAR.length / 2 + 0.15 };
+const _hit = { nx: 0, nz: 0, depth: 0 };
+const _save = { x: 0, z: 0, h: 0 };
 const MAX_CONES = 48;
 
 function coneKit() {
@@ -349,7 +353,7 @@ export class ObstacleSystem {
       const s = m.wrapS(mv.u * m.length);
       const hw = m.halfWidthAt(s);
       const wallT = m.wallOffset(s);
-      const mover = { type: mv.type, s, period: mv.period, phase: mv.phase || 0, hw, wallT, col: null, mesh: null, warn: null };
+      const mover = { type: mv.type, s, period: mv.period, phase: mv.phase || 0, hw, wallT, col: null, mesh: null, warn: null, time: 0 };
       if (mv.type === 'truck') {
         mover.mesh = new THREE.Mesh(truckKit(), this.mat);
         mover.mesh.castShadow = true;
@@ -549,12 +553,37 @@ export class ObstacleSystem {
     col.spin.set(r.range(-12, 12), r.range(-6, 6), r.range(-12, 12));
   }
 
-  /** Fixed-step update: moving obstacles + flying cones. */
-  step(dt) {
+  /**
+   * Fixed-step update: moving obstacles + flying cones. Runs before the cars
+   * move. A moving obstacle never crushes a car: if its next pose would
+   * overlap one, it holds still this step (gates pause, trucks wait).
+   */
+  step(dt, racers) {
     this.time += dt;
     for (const mv of this.movers) {
-      this._positionMover(mv, this.time);
-      this.world.move(mv.col);
+      const col = mv.col;
+      _save.x = col.x;
+      _save.z = col.z;
+      _save.h = col.h;
+      this._positionMover(mv, mv.time + dt);
+      let blocked = false;
+      if (racers) {
+        for (let i = 0; i < racers.length && !blocked; i++) {
+          const v = racers[i].vehicle;
+          _carBox.x = v.x;
+          _carBox.z = v.z;
+          _carBox.h = v.h;
+          blocked = col.shape === 'circle' ? boxCircle(_carBox, col.x, col.z, col.r, _hit) : boxBox(_carBox, col, _hit);
+        }
+      }
+      if (blocked) {
+        this._positionMover(mv, mv.time);
+        mv.blocked = true;
+      } else {
+        mv.time += dt;
+        mv.blocked = false;
+      }
+      this.world.move(col);
     }
     for (const c of this.cones) {
       if (c.resting) continue;
@@ -629,6 +658,8 @@ export class ObstacleSystem {
       t.disabled = false;
     }
     for (const mv of this.movers) {
+      mv.time = 0;
+      mv.blocked = false;
       this._positionMover(mv, 0);
       this.world.move(mv.col);
     }

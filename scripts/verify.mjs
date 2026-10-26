@@ -465,6 +465,21 @@ async function main() {
       check('garage: console clean', problems.length === 0, formatProblems(problems));
       await context.close();
     }
+
+    // ---------------------------------------------------------------- every circuit (phase 5)
+    if (want('circuits')) {
+      for (const cid of CIRCUIT_ORDER) {
+        if (cid === 'beginner' && want('lap') && !ONLY.length) continue; // already driven above
+        const { page, context, problems } = await openGame(browser, server);
+        const status = await lapRun(page, cid, { laps: 1, plan: planFor(cid), shots: `30-${cid}` });
+        const lap = status.events.filter((e) => e.type === 'lap').map((e) => e.lapTimes[0]);
+        report.runs[cid] = { lap, maxPen: status.maxPen, samples: status.samples.length };
+        check(`${cid}: autopilot completes a full lap`, status.done && status.laps >= 1, `lap ${lap.map((x) => x.toFixed(3)).join(', ')} s`);
+        check(`${cid}: camera never inside geometry, no overlap > 1 cm, no lap errors`, status.failures.length === 0, status.failures.slice(0, 3).join('; ') || `max overlap ${(status.maxPen * 100).toFixed(2)} cm`);
+        check(`${cid}: console clean`, problems.length === 0, formatProblems(problems));
+        await context.close();
+      }
+    }
   } catch (err) {
     check('verify run', false, String(err && err.stack ? err.stack : err));
   } finally {
