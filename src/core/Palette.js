@@ -15,6 +15,9 @@ export const UI = Object.freeze({
   warnAmber: 0xffb800,
 });
 
+export const WHITE = 0xffffff;
+export const BLACK = 0x000000;
+
 /** CSS string for a palette number, for canvas 2D drawing. */
 export function css(hex) {
   return '#' + hex.toString(16).padStart(6, '0');

@@ -48,8 +48,30 @@ export async function newPage(browser, { width = 1280, height = 720, fakeClock =
     }
   });
   if (seed) await page.addInitScript(SEED_SCRIPT);
-  if (fakeClock) await page.clock.install({ time: new Date('2026-01-01T00:00:00Z') });
+  if (fakeClock) {
+    // install fake timers, then PAUSE them: Playwright's fake clock otherwise
+    // keeps flowing in real time, so slow steps (screenshots) would add frames.
+    // From here on, time only moves through clock.runFor().
+    const t0 = Date.parse('2026-01-01T00:00:00Z');
+    await page.clock.install({ time: t0 });
+    await page.clock.pauseAt(t0 + 1000);
+  }
   return { page, context, problems };
+}
+
+/** Wait (advancing the paused clock frame by frame) until fn() is truthy in the page. */
+export async function waitFor(page, fn, arg, maxFrames = 3000) {
+  for (let i = 0; i < maxFrames; i++) {
+    let ok = false;
+    try {
+      ok = await page.evaluate(fn, arg);
+    } catch {
+      ok = false;
+    }
+    if (ok) return true;
+    await page.clock.runFor(16);
+  }
+  return false;
 }
 
 /** Advance the fake clock in exact 16 ms frames. */

@@ -6,7 +6,7 @@ export const PHASES = Object.freeze(['boot', 'menu', 'garage', 'select', 'loadin
 
 const TRANSITIONS = Object.freeze({
   boot: ['menu', 'error'],
-  menu: ['garage', 'select', 'error'],
+  menu: ['garage', 'select', 'loading', 'error'],
   garage: ['menu', 'select', 'error'],
   select: ['menu', 'garage', 'loading', 'error'],
   loading: ['countdown', 'menu', 'error'],

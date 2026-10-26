@@ -7,6 +7,8 @@
 @import './tokens/motion.css';
 @import './components.css';
 @import './screens.css';
+@import './hud.css';
+@import './menu.css';
 
 /* ---------- base ---------- */
 *,
