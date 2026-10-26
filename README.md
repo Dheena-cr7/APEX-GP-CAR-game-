@@ -143,7 +143,7 @@ The build uses relative asset paths (`base: './'`), so the same `dist/` works at
 npx vercel --prod
 ```
 
-**GitHub Pages:** `.github/workflows/deploy-pages.yml` lints, builds and publishes `dist/` on every push to `main`. One-time setup: repository **Settings → Pages → Source: GitHub Actions**. The game is then served at `https://<user>.github.io/<repo>/`. For an absolute base instead, build with `VITE_BASE=/<repo>/ npm run build`.
+**GitHub Pages:** `.github/workflows/deploy-pages.yml` lints, builds and publishes `dist/` to the `gh-pages` branch on every push to `main`, and Pages serves that branch. Live at **https://dheena-cr7.github.io/APEX-GP-CAR-game-/**. If Pages is ever switched off, re-enable it under Settings → Pages → Deploy from a branch → `gh-pages` / root.
 
 ## Known limitations
 
