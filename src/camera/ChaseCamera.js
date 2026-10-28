@@ -80,7 +80,8 @@ export class ChaseCamera {
     this.look.y = car.y + p.lookHeight;
     const speedFov = Math.min(1, car.speed / 85) * 13;
     const driftFov = Math.min(1, Math.abs(car.slip) / 0.6) * 6;
-    this.fov += (p.fov + speedFov + driftFov - this.fov) * damp(3, dt);
+    const boostFov = car.boost ? 9 : 0; // nitro punch
+    this.fov += (p.fov + speedFov + driftFov + boostFov - this.fov) * damp(car.boost ? 5 : 3, dt);
     return this;
   }
 }

@@ -20,6 +20,8 @@ export function defaultSave() {
       camera: 'chase',
       units: 'kmh',
       assists: 'medium', // 'easy' | 'medium' | 'hard' drift stabilisation
+      handling: 'arcade', // 'arcade' (NFS-style) | 'sim'
+      playerName: 'Driver',
       showMinimap: true,
       freePlay: false,
       bindings: null,
@@ -103,6 +105,8 @@ export function validateSave(raw) {
       camera: oneOf(s.camera, ['chase', 'close', 'cockpit', 'tv'], d.settings.camera),
       units: oneOf(s.units, ['kmh', 'mph'], d.settings.units),
       assists: oneOf(s.assists, ['easy', 'medium', 'hard'], d.settings.assists),
+      handling: oneOf(s.handling, ['arcade', 'sim'], d.settings.handling),
+      playerName: typeof s.playerName === 'string' && s.playerName.trim() ? s.playerName.slice(0, 14) : d.settings.playerName,
       showMinimap: bool(s.showMinimap, d.settings.showMinimap),
       freePlay: bool(s.freePlay, d.settings.freePlay),
       bindings: isObj(s.bindings) ? sanitizeBindings(s.bindings) : null,

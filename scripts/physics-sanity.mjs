@@ -5,6 +5,8 @@ import { SURFACES } from '../src/cars/PhysicsConfig.js';
 import { CARS } from '../src/cars/CarData.js';
 
 const DT = 1 / 120;
+const SIM = { handling: 'sim' };
+const ARC = { handling: 'arcade' };
 const wrap = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
 function run(car, seconds, control) {
@@ -24,7 +26,7 @@ export function physicsChecks(stats = CARS[0].stats, label = CARS[0].name) {
 
   // 1. acceleration
   {
-    const car = new Vehicle(stats);
+    const car = new Vehicle(stats, SIM);
     let t100 = -1;
     let t200 = -1;
     run(car, 40, (t, c) => {
@@ -41,7 +43,7 @@ export function physicsChecks(stats = CARS[0].stats, label = CARS[0].name) {
 
   // 2. braking 250 -> 0
   {
-    const car = new Vehicle(stats);
+    const car = new Vehicle(stats, SIM);
     car.u = 250 / 3.6;
     const z0 = car.z;
     const t = run(car, 15, (tt, c) => (c.u <= 0.9 ? null : { brake: 1 }));
@@ -51,7 +53,7 @@ export function physicsChecks(stats = CARS[0].stats, label = CARS[0].name) {
 
   // 3. reverse
   {
-    const car = new Vehicle(stats);
+    const car = new Vehicle(stats, SIM);
     run(car, 3, () => ({ brake: 1 }));
     add('reverses', car.u < -5 && car.gear === 0, `u ${car.u.toFixed(2)}`);
     run(car, 2, () => ({ brake: 1, steer: 1 }));
@@ -60,7 +62,7 @@ export function physicsChecks(stats = CARS[0].stats, label = CARS[0].name) {
 
   // 4. steady cornering: follow a circle of radius R with a P controller
   for (const R of [40, 120]) {
-    const car = new Vehicle(stats);
+    const car = new Vehicle(stats, SIM);
     // start at (-R, 0) heading +z: the circle centre (origin) is on the left
     let best = 0;
     for (let vt = 10; vt <= 90; vt += 2) {
@@ -86,7 +88,7 @@ export function physicsChecks(stats = CARS[0].stats, label = CARS[0].name) {
 
   // 5. handbrake drift: initiate, hold with constant inputs, recover
   {
-    const car = new Vehicle(stats);
+    const car = new Vehicle(stats, SIM);
     car.u = 32;
     let maxSlip = 0;
     let driftTime = 0;
@@ -108,17 +110,16 @@ export function physicsChecks(stats = CARS[0].stats, label = CARS[0].name) {
     const before = Math.abs(car.slip);
     run(car, 0.8, () => ({ steer: 1, throttle: 0.85 }));
     add('steering into the slide widens it', Math.abs(car.slip) > before + 0.05, `${((before * 180) / Math.PI).toFixed(1)}° -> ${((Math.abs(car.slip) * 180) / Math.PI).toFixed(1)}°`);
-    const meter = car.boostMeter;
+    const meter = car.nitro;
     run(car, 2.5, () => ({ steer: -0.5, throttle: 0.6 }));
     run(car, 1.5, () => ({ steer: 0, throttle: 0.6 }));
     add('counter-steer recovers', !car.drifting && Math.abs(car.slip) < 0.1, `slip ${((car.slip * 180) / Math.PI).toFixed(1)}°`);
-    add('drift fills boost meter', meter > 0.3, `meter ${meter.toFixed(2)}`);
-    add('boost fires on release', car.events.boost > 0, `boosts ${car.events.boost}`);
+    add('sim: drift fills the nitro tank', meter > 0.6, `nitro ${meter.toFixed(2)}`);
   }
 
   // 5b. lifting off the throttle ends a drift
   {
-    const car = new Vehicle(stats);
+    const car = new Vehicle(stats, SIM);
     car.u = 32;
     run(car, 1.5, (t) => (t < 0.45 ? { steer: 1, handbrake: true, throttle: 0.4 } : { steer: 0.35, throttle: 0.85 }));
     const was = car.drifting;
@@ -128,7 +129,7 @@ export function physicsChecks(stats = CARS[0].stats, label = CARS[0].name) {
 
   // 6. brake-tap / lift initiation at speed (no handbrake)
   {
-    const car = new Vehicle(stats);
+    const car = new Vehicle(stats, SIM);
     car.u = 45;
     let maxSlip = 0;
     run(car, 2.5, (t, c) => {
@@ -141,7 +142,7 @@ export function physicsChecks(stats = CARS[0].stats, label = CARS[0].name) {
 
   // 7. stability: random steering pulses at speed never leave the car spinning
   {
-    const car = new Vehicle(stats);
+    const car = new Vehicle(stats, SIM);
     car.u = 60;
     let seed = 7;
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -156,8 +157,8 @@ export function physicsChecks(stats = CARS[0].stats, label = CARS[0].name) {
 
   // 8. low grip surfaces slow the car
   {
-    const a = new Vehicle(stats);
-    const g = new Vehicle(stats);
+    const a = new Vehicle(stats, SIM);
+    const g = new Vehicle(stats, SIM);
     a.u = g.u = 50;
     run(a, 3, () => ({ throttle: 1 }));
     run(g, 3, () => ({ throttle: 1, surface: SURFACES.sand }));
@@ -165,9 +166,91 @@ export function physicsChecks(stats = CARS[0].stats, label = CARS[0].name) {
   }
   // 9. creeping away from rest at full lock goes forward (no tyre-force reverse)
   {
-    const car = new Vehicle(stats);
+    const car = new Vehicle(stats, SIM);
     run(car, 2, () => ({ throttle: 0.15, steer: 1 }));
     add('full-lock creep moves forward', car.u > 0.8 && car.gear === 1, `u ${car.u.toFixed(2)}`);
+  }
+  // ---------------- arcade (NFS-style) handling ----------------
+  // 10. handbrake flick starts a drift that holds while steering into it, keeps its speed, never spins
+  {
+    const car = new Vehicle(stats, ARC);
+    car.u = 32;
+    let minV = 99;
+    let maxSlip = 0;
+    let drifted = 0;
+    run(car, 3.5, (t, c) => {
+      if (t > 0.6) minV = Math.min(minV, c.speed);
+      maxSlip = Math.max(maxSlip, Math.abs(c.slip));
+      if (c.drifting) drifted += DT;
+      return t < 0.2 ? { throttle: 0.6, steer: 0.8, handbrake: true } : { throttle: 0.9, steer: 0.5 };
+    });
+    add('arcade: handbrake + steer starts a drift that holds', car.drifting && drifted > 3.1, `${drifted.toFixed(2)} s`);
+    add('arcade: drift keeps its speed (≥ 85 %)', minV > 32 * 0.85, `min ${minV.toFixed(1)} m/s`);
+    add('arcade: slide angle stays in 15–55°, no spin', maxSlip > 0.26 && maxSlip < 0.96, `max ${((maxSlip * 180) / Math.PI).toFixed(0)}°`);
+    const wide = Math.abs(car.slip);
+    run(car, 0.6, () => ({ throttle: 0.9, steer: 1 }));
+    add('arcade: steering into the slide widens it', Math.abs(car.slip) > wide + 0.05, `${((wide * 180) / Math.PI).toFixed(0)}° → ${((Math.abs(car.slip) * 180) / Math.PI).toFixed(0)}°`);
+    run(car, 1.2, () => ({ throttle: 0.8, steer: 0 }));
+    add('arcade: letting go of the wheel straightens the car within 1.2 s', !car.drifting && Math.abs(car.slip) < 0.06 && Math.abs(car.r) < 0.5, `slip ${((car.slip * 180) / Math.PI).toFixed(1)}°`);
+  }
+  // 11. NFS-style brake tap, turn in, back on the gas
+  {
+    const car = new Vehicle(stats, ARC);
+    car.u = 35;
+    let at = -1;
+    run(car, 1.5, (t, c) => {
+      if (at < 0 && c.drifting) at = t;
+      return t < 0.2 ? { brake: 1 } : { throttle: 0.8, steer: 0.8 };
+    });
+    add('arcade: brake tap + turn-in starts a drift', at > 0 && at < 0.6, `at ${at.toFixed(2)} s`);
+  }
+  // 12. counter-steer exits; plain cornering without handbrake does not drift
+  {
+    const car = new Vehicle(stats, ARC);
+    car.u = 30;
+    run(car, 1, (t) => (t < 0.2 ? { throttle: 0.6, steer: 1, handbrake: true } : { throttle: 0.9, steer: 0.5 }));
+    run(car, 0.8, () => ({ throttle: 0.7, steer: -0.8 }));
+    add('arcade: counter-steer ends the drift', !car.drifting, `slip ${((car.slip * 180) / Math.PI).toFixed(1)}°`);
+    const g = new Vehicle(stats, ARC);
+    g.u = 25;
+    let any = false;
+    run(g, 2, () => {
+      if (g.drifting) any = true;
+      return { throttle: 0.6, steer: 0.5 };
+    });
+    add('arcade: normal cornering stays in grip', !any, '');
+  }
+  // 13. nitro burns the tank for extra speed; drifting refills it
+  {
+    const a = new Vehicle(stats, ARC);
+    const b = new Vehicle(stats, ARC);
+    a.u = b.u = 40;
+    run(a, 2, () => ({ throttle: 1 }));
+    run(b, 2, () => ({ throttle: 1, boost: true }));
+    add('nitro: holding boost burns the tank for more speed', b.u > a.u + 5 && b.nitro < 0.05, `${a.u.toFixed(1)} vs ${b.u.toFixed(1)} m/s, tank ${b.nitro.toFixed(2)}`);
+    const c = new Vehicle(stats, ARC);
+    c.u = 30;
+    c.nitro = 0;
+    run(c, 3, (t) => (t < 0.2 ? { throttle: 0.6, steer: 0.8, handbrake: true } : { throttle: 0.9, steer: 0.5 }));
+    add('nitro: a 3 s drift refills part of the tank', c.nitro > 0.2 && c.nitro < 0.9, `tank ${c.nitro.toFixed(2)}`);
+  }
+  // 14. arcade random-input stability (never left spinning)
+  {
+    const car = new Vehicle(stats, ARC);
+    car.u = 50;
+    let seed = 11;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    let st = 0;
+    let hb = false;
+    run(car, 12, (t) => {
+      if (Math.floor(t * 3) !== Math.floor((t - DT) * 3)) {
+        st = rnd() * 2 - 1;
+        hb = rnd() < 0.25;
+      }
+      return { steer: st, throttle: 0.8, handbrake: hb };
+    });
+    run(car, 3, () => ({ steer: 0, throttle: 0.5 }));
+    add('arcade: recovers after random steering + handbrake', !car.drifting && Math.abs(car.slip) < 0.12 && Math.abs(car.r) < 0.6, `slip ${((car.slip * 180) / Math.PI).toFixed(1)}° r ${car.r.toFixed(2)}`);
   }
   return out;
 }

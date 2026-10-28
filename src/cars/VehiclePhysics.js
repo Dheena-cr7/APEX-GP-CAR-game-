@@ -20,9 +20,14 @@ function tyre(x, falloff) {
 }
 
 export class Vehicle {
-  constructor(stats, { assist = 'medium' } = {}) {
+  /**
+   * handling: 'arcade' (NFS-style: drift is a controlled state steered by the
+   * player, very forgiving) or 'sim' (tyre-balance drift with assists).
+   */
+  constructor(stats, { assist = 'medium', handling = 'arcade' } = {}) {
     this.stats = stats;
     this.params = deriveParams(stats);
+    this.handling = handling;
     this.setAssist(assist);
     this.events = { driftStart: 0, driftEnd: 0, boost: 0, shift: 0 };
     this.reset(0, 0, 0);
@@ -61,7 +66,11 @@ export class Vehicle {
     this.prevPsi = heading;
     this.boostTime = 0;
     this.boostAccel = 0;
-    this.boostMeter = 0;
+    this.nitro = P.nitroStart; // 0..1 tank
+    this.nitroActive = false;
+    this.speedbreak = false; // set by the race while speedbreaker runs
+    this.recovering = false;
+    this.brakeTapTimer = 9; // seconds since the brake was last pressed at speed
     this.surface = SURFACES.asphalt;
     this.longAccel = 0;
     this.latAccel = 0;
@@ -108,12 +117,25 @@ export class Vehicle {
     this.events.boost++;
   }
 
-  /** Fire the drift boost from the current meter. */
-  releaseDriftBoost() {
-    if (this.boostMeter < P.driftBoostMinMeter) return false;
-    this.triggerBoost(this.boostMeter * P.driftBoostDuration, P.boostAccel);
-    this.boostMeter = 0;
-    return true;
+  /** HUD alias: the nitro tank. */
+  get boostMeter() {
+    return this.nitro;
+  }
+
+  /** Add nitro (near misses, tokens…), clamped to a full tank. */
+  addNitro(amount) {
+    this.nitro = Math.min(1, this.nitro + amount);
+  }
+
+  /** Start an arcade drift toward `side` (+1 = turning right). */
+  startDrift(side) {
+    if (this.drifting) return;
+    this.drifting = true;
+    this.driftSide = side;
+    this.driftTime = 0;
+    this.exitTimer = 0;
+    this.recovering = false;
+    this.events.driftStart++;
   }
 
   /**
@@ -131,7 +153,7 @@ export class Vehicle {
     // ---- steering (smoothed, speed sensitive) ----
     const target = clamp(input.steer || 0, -1, 1);
     const growing = Math.abs(target) > Math.abs(this.steer) && sign(target) === sign(this.steer || target);
-    const rate = (growing ? P.steerRate * p.steerRateMul : P.steerReturn) * dt;
+    const rate = (growing ? P.steerRate * p.steerRateMul : P.steerReturn) * (this.speedbreak ? 1.3 : 1) * dt;
     this.steer += clamp(target - this.steer, -rate, rate);
     let lock = Math.max(P.steerLockMin, P.steerLockLow / (1 + Math.abs(this.u) / P.steerSpeedFalloff));
     if (this.drifting) lock = Math.max(lock, 0.3);
@@ -145,7 +167,7 @@ export class Vehicle {
     this.brakeInput = brake;
     this.handbrake = !!input.handbrake;
     const u = this.u;
-    const vTopEff = p.vTop * (this.boostTime > 0 ? P.boostTopSpeedBonus : 1);
+    const vTopEff = p.vTop * (this.boostTime > 0 ? P.boostTopSpeedBonus : 1) * (this.nitroActive ? P.nitroTopSpeedBonus : 1);
     let fx = 0;
     this.braking = false;
     this.reversing = false;
@@ -184,7 +206,17 @@ export class Vehicle {
         this.boostAccel = 0;
       }
     }
+    // nitrous: hold boost to burn the tank
+    this.nitroActive = !!input.boost && this.nitro > 0.01 && u > -0.5;
+    if (this.nitroActive) {
+      const vN = p.vTop * P.nitroTopSpeedBonus;
+      fx += P.nitroAccel * clamp(1.08 - Math.max(0, u) / vN, 0, 1) + P.aeroDrag * u * u;
+      this.nitro = Math.max(0, this.nitro - P.nitroBurn * dt);
+    }
     if (this.drifting && throttle > 0) fx += throttle * P.driftThrottleThrust;
+    // brake-to-drift timing (NFS: tap the brake, turn in, back on the gas)
+    if (brake > 0.5 && u > 18) this.brakeTapTimer = 0;
+    else this.brakeTapTimer += dt;
     // slipstream: less drag behind another car (also lifts the top speed a little)
     if (this.slipstream > 0 && throttle > 0) fx += this.slipstream * (P.slipstreamAccel + P.aeroDrag * u * u * 0.35);
 
@@ -195,7 +227,8 @@ export class Vehicle {
     let nr = (load * a) / L + (ax * P.cgHeight) / L;
     nf = Math.max(nf, load * 0.15);
     nr = Math.max(nr, load * 0.15);
-    const mu = p.mu * surface.grip;
+    const arcade = this.handling === 'arcade';
+    const mu = p.mu * surface.grip * (arcade ? P.arcadeGrip : 1) * (this.speedbreak ? P.speedbreakGrip : 1);
     const df = mu * nf;
     let dr = mu * nr;
     if (this.handbrake && u > 2) dr *= P.handbrakeRearGrip;
@@ -242,7 +275,7 @@ export class Vehicle {
     // player. Steering into the slide widens it, counter-steer or lifting
     // narrows it (and ends the drift). beta' = pathRate - r, so the yaw rate
     // that moves beta toward the target is pathRate - side * k * error.
-    if (this.drifting && u > 3) {
+    if (!arcade && this.drifting && u > 3) {
       const side = this.driftSide;
       const into = this.steer * side;
       let target = (0.4 + 0.34 * into) * clamp((throttle - 0.15) / 0.65, 0, 1) * p.driftAngleMul;
@@ -251,12 +284,49 @@ export class Vehicle {
       nrYaw += (rTarget - nrYaw) * (1 - Math.exp(-this.assist.hold * p.driftStab * dt));
     }
 
+    // arcade drift: the slide is a controlled state. Steering sets the
+    // path's turn rate and the slip angle, throttle holds it, letting go of
+    // the steering (or counter-steering / lifting) straightens the car.
+    let arcadeDrift = false;
+    if (arcade && this.drifting && u > 3) {
+      arcadeDrift = true;
+      const side = this.driftSide;
+      const V = Math.hypot(this.u, this.v);
+      const into = this.steer * side;
+      const beta0 = Math.atan2(this.v, Math.max(0.5, this.u));
+      // exit logic: counter-steer, straight wheels with no handbrake, lift, too slow
+      const wantExit = into < -0.45 || (Math.abs(this.steer) < 0.12 && !this.handbrake) || throttle < 0.12 || V < P.driftMinSpeed * 0.75;
+      this.exitTimer = wantExit ? this.exitTimer + dt : 0;
+      if (this.exitTimer > P.arcadeExitDelay) this.recovering = true;
+      let betaT = 0;
+      if (!this.recovering) {
+        betaT = side * clamp((P.arcadeAngle + P.arcadeAngleSteer * into + (this.handbrake ? 0.14 : 0)) * p.driftAngleMul, 0.1, 0.8);
+      }
+      const betaRate = this.recovering ? P.arcadeRecover : P.arcadeAngleRate;
+      const beta = beta0 + (betaT - beta0) * (1 - Math.exp(-betaRate * dt));
+      // path curvature from lateral grip, tightened by steering into the slide
+      const aLat = mu * G * (1 + p.downforce * V * V) * (0.72 + 0.32 * Math.max(-0.5, into) + (this.handbrake ? 0.2 : 0));
+      const turn = this.recovering ? Math.abs(this.pathRate) * Math.exp(-3 * dt) : aLat / Math.max(8, V);
+      const psi = this.h + beta0;
+      const psiN = psi - side * turn * dt;
+      // speed: longitudinal force projected on the path, minus slide scrub
+      const Vn = Math.max(0, V + (fx * Math.cos(beta0) * P.arcadeDrive - P.arcadeScrub * Math.abs(Math.sin(beta0)) * clamp(V / 20, 0, 1.5)) * dt);
+      const hN = psiN - beta;
+      let dh = hN - this.h;
+      if (dh > Math.PI) dh -= Math.PI * 2;
+      else if (dh < -Math.PI) dh += Math.PI * 2;
+      nrYaw = dh / dt;
+      nu = Vn * Math.cos(beta);
+      nv = Vn * Math.sin(beta);
+      if (this.recovering && Math.abs(beta) < 0.05) this.endDrift(true);
+    }
+
     // braking must not flip the direction of travel
     if (this.braking && u > 0 && nu < 0) nu = 0;
     if (this.braking && u < 0 && nu > 0) nu = 0;
 
     // ---- low speed / reverse: kinematic blend ----
-    if (k < 1) {
+    if (k < 1 && !arcadeDrift) {
       const kinR = (nu * Math.tan(delta)) / L;
       const kinV = this.v * Math.exp(-12 * dt);
       nrYaw = kinR + (nrYaw - kinR) * k;
@@ -300,27 +370,37 @@ export class Vehicle {
     // ---- drift state ----
     const slipNow = this.u > 0.5 ? Math.atan2(this.v, this.u) : 0;
     const absSlip = Math.abs(slipNow);
-    if (this.drifting && sign(slipNow) !== this.driftSide && absSlip > p.driftEnter) {
-      // flicked into the other direction: end and immediately restart
-      this.endDrift(true);
-    }
-    if (!this.drifting) {
-      if (this.u > P.driftMinSpeed && absSlip > p.driftEnter) {
-        this.drifting = true;
-        this.driftSide = sign(slipNow);
-        this.driftTime = 0;
-        this.exitTimer = 0;
-        this.events.driftStart++;
-      }
+    if (arcade) {
+      if (!this.drifting && this.u > P.driftMinSpeed) {
+        const st = this.steer;
+        // handbrake + steering, or a brake tap then turn-in on the gas, or a big natural slide
+        if (this.handbrake && Math.abs(st) > 0.25) this.startDrift(sign(st));
+        else if (this.brakeTapTimer < P.brakeTapWindow && Math.abs(st) > 0.55 && throttle > 0.3 && this.u > 18) this.startDrift(sign(st));
+        else if (absSlip > p.driftEnter * 1.3) this.startDrift(sign(slipNow));
+      } else if (this.drifting) this.driftTime += dt;
     } else {
-      this.driftTime += dt;
-      this.exitTimer = absSlip < P.driftExitAngle ? this.exitTimer + dt : 0;
-      if (this.exitTimer > P.driftExitDelay || this.u < P.driftMinSpeed * 0.6) this.endDrift(true);
+      if (this.drifting && sign(slipNow) !== this.driftSide && absSlip > p.driftEnter) {
+        // flicked into the other direction: end and immediately restart
+        this.endDrift(true);
+      }
+      if (!this.drifting) {
+        if (this.u > P.driftMinSpeed && absSlip > p.driftEnter) {
+          this.drifting = true;
+          this.driftSide = sign(slipNow);
+          this.driftTime = 0;
+          this.exitTimer = 0;
+          this.events.driftStart++;
+        }
+      } else {
+        this.driftTime += dt;
+        this.exitTimer = absSlip < P.driftExitAngle ? this.exitTimer + dt : 0;
+        if (this.exitTimer > P.driftExitDelay || this.u < P.driftMinSpeed * 0.6) this.endDrift(true);
+      }
     }
-    if (this.drifting) {
-      this.boostMeter = Math.min(1, this.boostMeter + p.driftBoostGain * (absSlip / 0.52) * clamp(this.u / 30, 0, 1.4) * dt);
-      if (input.boost) this.releaseDriftBoost();
-    }
+    // nitro refills: drifting, flat-out speed, slipstream
+    if (this.drifting) this.nitro = Math.min(1, this.nitro + p.driftBoostGain * P.nitroDriftFill * (0.4 + Math.min(1.2, absSlip / 0.5)) * clamp(this.u / 30, 0, 1.4) * dt);
+    if (this.u > p.vTop * 0.78 && !this.nitroActive) this.nitro = Math.min(1, this.nitro + P.nitroSpeedFill * dt);
+    if (this.slipstream > 0) this.nitro = Math.min(1, this.nitro + P.nitroDraftFill * this.slipstream * dt);
 
     // ---- gears / rpm / wheels ----
     this.updateDrivetrain(dt, throttle);
@@ -330,14 +410,14 @@ export class Vehicle {
     if (this.skid > 1) this.skid = 1;
   }
 
-  /** End the current drift. `clean` = straightened out (meter may auto-fire). */
+  /** End the current drift (clean = straightened out, else broken by a hit). */
   endDrift(clean) {
     if (!this.drifting) return;
     this.drifting = false;
+    this.recovering = false;
     this.exitTimer = 0;
     this.events.driftEnd++;
-    if (clean) this.releaseDriftBoost();
-    else this.boostMeter = 0;
+    if (!clean) this.r *= 0.5;
   }
 
   updateDrivetrain(dt, throttle) {

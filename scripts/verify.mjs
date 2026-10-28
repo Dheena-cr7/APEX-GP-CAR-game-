@@ -336,7 +336,8 @@ async function main() {
         drive(40, { throttle: 0.4, steer: 1, handbrake: true });
         drive(50, { throttle: 0.85, steer: 0.2 });
         const during = { drifting: api.getCar().drifting, current: race.drift.current };
-        for (let i = 0; i < 360; i++) drive(1, follow(0.45));
+        drive(90, { throttle: 0.5 }); // arcade: letting go of the wheel straightens the car
+        for (let i = 0; i < 300; i++) drive(1, follow(0.45));
         out.driftBank = { drifted: during.drifting, currentWhileDrifting: Math.round(during.current), banked: race.drift.banked };
         return out;
       });

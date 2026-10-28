@@ -488,3 +488,77 @@
   .hero-card .btn--lg { height: 44px; }
   .screen__corner { display: none; }
 }
+
+/* multiplayer */
+.mp-slots { display: flex; flex-direction: column; gap: var(--sp-2); }
+.mp-slot {
+  display: grid;
+  grid-template-columns: 34px auto auto;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  padding: var(--sp-2);
+  border: var(--hairline);
+  background: var(--slate);
+}
+.mp-slot__tag {
+  font-family: var(--font-display);
+  font-size: var(--fs-display-4);
+  color: var(--info-blue);
+}
+.mp-slot__hint { grid-column: 2 / -1; }
+.stepper { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.stepper__value {
+  min-width: 13ch;
+  text-align: center;
+  font-size: var(--fs-label-sm);
+  font-weight: var(--weight-label-strong);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.mp-preview canvas { border: var(--hairline); }
+.text-input {
+  height: 40px;
+  padding: 0 var(--sp-3);
+  background: var(--void);
+  border: 1px solid var(--edge);
+  border-radius: var(--radius-0);
+  color: var(--chalk);
+  font-family: var(--font-mono);
+  font-size: var(--fs-label-lg);
+  letter-spacing: 0.06em;
+  width: 100%;
+}
+.text-input:focus-visible { border-color: var(--chalk); }
+.text-input--code {
+  font-family: var(--font-display);
+  font-size: var(--fs-display-4);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  width: 9ch;
+}
+.mp-join { display: flex; gap: var(--sp-2); align-items: center; }
+.mp-status { min-height: 1.6em; color: var(--warn-amber); }
+.mp-code { display: flex; flex-direction: column; gap: var(--sp-1); }
+.mp-code__value { letter-spacing: 0.12em; color: var(--chalk); }
+.mp-lobby {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.mp-lobby li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--slate);
+  border-left: 3px solid var(--edge);
+}
+.mp-lobby li.is-me { border-left-color: var(--info-blue); }
+.mp-lobby__name {
+  font-family: var(--font-display);
+  font-size: var(--fs-display-4);
+  min-width: 10ch;
+}

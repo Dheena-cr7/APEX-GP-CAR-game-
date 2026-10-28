@@ -23,6 +23,7 @@ import { ACTION_LABELS, InputManager, keyLabel, DEFAULT_BINDINGS } from '../cont
 import { modeLabel } from './RaceHUD.js';
 import { CAMERA_LABELS } from '../camera/CameraRig.js';
 import { renderResults } from './ResultsUI.js';
+import { renderMultiplayer, renderSplit, renderOnline, renderLobby } from './MultiplayerUI.js';
 
 const MODES = [
   { id: 'campaign', name: 'Campaign', desc: '12 levels across 4 circuits. Earn stars to unlock circuits, cars and liveries.', badge: { label: '12 levels', tone: 'solid' } },
@@ -69,6 +70,21 @@ export class MenuUI {
     window.addEventListener('keydown', this._onKey);
   }
 
+  /** Online room changed: refresh the lobby if it is showing. */
+  onLobby() {
+    const st = this.game.store.state;
+    if (st.phase === 'select' && st.screen === 'lobby' && !this.overlay) {
+      const focused = document.activeElement && document.activeElement.textContent;
+      this.render(st);
+      if (focused) {
+        for (const b of this.layer.querySelectorAll('button')) if (b.textContent === focused) {
+          b.focus({ preventScroll: true });
+          break;
+        }
+      }
+    }
+  }
+
   overlayOpen() {
     return !!this.overlay;
   }
@@ -99,6 +115,10 @@ export class MenuUI {
     else if (phase === 'select') {
       if (state.screen === 'track') this._track(state);
       else if (state.screen === 'setup') this._setup(state);
+      else if (state.screen === 'mp') renderMultiplayer(this);
+      else if (state.screen === 'split') renderSplit(this);
+      else if (state.screen === 'online') renderOnline(this);
+      else if (state.screen === 'lobby') renderLobby(this);
       else this._mode(state);
     } else if (phase === 'garage') this._garage(state);
     else if (phase === 'loading') this._loading(state);
@@ -137,6 +157,7 @@ export class MenuUI {
         h('p', { className: 't-body', text: 'Twelve levels, four circuits, six cars. Race, drift and chase the perfect lap.' }),
         h('div', { className: 'hero-card__actions' }, [
           drive,
+          Button({ label: 'Multiplayer', variant: 'secondary', size: 'md', onClick: () => this._go('select', { screen: 'mp' }) }),
           Button({ label: 'Garage', variant: 'secondary', size: 'md', onClick: () => this._go('garage', { returnTo: 'menu' }) }),
           Button({ label: 'Quick practice', variant: 'secondary', size: 'md', onClick: () => this._quickPractice() }),
           Button({ label: 'Settings', variant: 'ghost', size: 'md', onClick: () => this.openSettings() }),
@@ -580,7 +601,7 @@ export class MenuUI {
 
   _leaveGarage(state) {
     this.click();
-    if (state.returnTo === 'select') this.game.store.go('select', { screen: state.mode === 'campaign' ? 'track' : 'setup' });
+    if (state.returnTo === 'select') this.game.store.go('select', { screen: state.returnScreen || (state.mode === 'campaign' ? 'track' : 'setup'), returnScreen: null });
     else this.game.store.go('menu', { screen: 'main' });
   }
 
@@ -626,22 +647,24 @@ export class MenuUI {
     resume.dataset.autofocus = '';
     this.primary = resume;
     this.back = () => this._resume();
-    const canEnd = mode === 'practice' || mode === 'timetrial';
+    const online = !!(race && race.online);
+    const canEnd = !online && (mode === 'practice' || mode === 'timetrial') && race && race.humans.length === 1;
     this._screen('screen--pause', [
       Panel({
         raised: true,
         className: 'pause',
         children: [
           h('div', { className: 't-label-sm t-secondary', text: `${modeLabel(mode)} · ${race ? race.def.name : ''}` }),
-          h('h1', { className: 't-display-1', text: 'Paused' }),
+          h('h1', { className: 't-display-1', text: online ? 'Menu' : 'Paused' }),
+          online ? h('p', { className: 't-body', text: 'Online races keep running for everyone else — your car coasts while this menu is open.' }) : null,
           HazardBand({}),
           h('div', { className: 'pause__actions' }, [
             resume,
-            Button({ label: 'Restart', variant: 'secondary', size: 'md', hotkey: 'R', onClick: () => this._restart() }),
+            online ? null : Button({ label: 'Restart', variant: 'secondary', size: 'md', hotkey: 'R', onClick: () => this._restart() }),
             canEnd ? Button({ label: 'End session', variant: 'secondary', size: 'md', onClick: () => this._endSession() }) : null,
             Button({ label: 'Settings', variant: 'ghost', size: 'md', onClick: () => this.openSettings() }),
             Button({ label: 'Controls', variant: 'ghost', size: 'md', onClick: () => this.openControls() }),
-            Button({ label: 'Quit to menu', variant: 'ghost', size: 'md', onClick: () => this._confirmQuit() }),
+            Button({ label: online ? 'Leave race' : 'Quit to menu', variant: 'ghost', size: 'md', onClick: () => this._confirmQuit() }),
           ]),
         ],
       }),
@@ -756,6 +779,7 @@ export class MenuUI {
         'Gameplay',
         [
           this._segmented('Camera', ['chase', 'close', 'cockpit', 'tv'], s.camera, (v) => set((x) => (x.camera = v)), (v) => CAMERA_LABELS[v]),
+          this._segmented('Handling', ['arcade', 'sim'], s.handling, (v) => set((x) => (x.handling = v)), (v) => (v === 'arcade' ? 'Arcade (NFS)' : 'Sim')),
           this._segmented('Drift assist', ['easy', 'medium', 'hard'], s.assists, (v) => set((x) => (x.assists = v)), (v) => ({ easy: 'Strong', medium: 'Normal', hard: 'Light' })[v]),
           this._segmented('Units', ['kmh', 'mph'], s.units, (v) => set((x) => (x.units = v)), (v) => (v === 'kmh' ? 'km/h' : 'mph')),
           this._segmented('Mini-map', ['on', 'off'], s.showMinimap ? 'on' : 'off', (v) => set((x) => (x.showMinimap = v === 'on')), cap),
@@ -938,6 +962,7 @@ export class MenuUI {
     }
     if (e.key === 'Enter') {
       const a = document.activeElement;
+      if (a && a.tagName === 'INPUT' && a.type === 'text') return;
       const inside = a && (this.layer.contains(a) || (this.overlay && this.overlay.contains(a)));
       if (inside && (a.tagName === 'BUTTON' || a.getAttribute('role') === 'radio')) return; // native click
       if (!this.overlay && this.primary && !this.primary.disabled) {

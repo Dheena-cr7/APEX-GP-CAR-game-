@@ -55,11 +55,36 @@ export const PHYSICS = Object.freeze({
     hard: { hold: 2.2, maxAngle: (75 * Math.PI) / 180, spin: 7 },
   },
 
-  // boost
+  // arcade (NFS-style) handling
+  arcadeGrip: 1.12, // extra grip outside drifts
+  arcadeAngle: 0.38, // rad: slip angle with neutral-ish steering
+  arcadeAngleSteer: 0.26, // rad added (or removed) by steering into (against) the slide
+  arcadeAngleRate: 6, // 1/s: how fast the slip follows its target
+  arcadeRecover: 7, // 1/s: straightening speed on exit
+  arcadeExitDelay: 0.18, // s of exit input before the car straightens
+  arcadeScrub: 7, // m/s² speed lost at a 90° slide (scaled by sin β)
+  arcadeDrive: 0.5, // share of drive force that pushes the car along its path while sliding
+  brakeTapWindow: 0.45, // s after a brake tap in which turn-in starts a drift
+
+  // nitrous
+  nitroStart: 0.5,
+  nitroAccel: 10,
+  nitroTopSpeedBonus: 1.14,
+  nitroBurn: 0.3, // tank per second (full tank ≈ 3.3 s)
+  nitroDriftFill: 0.3, // × car drift stat gain
+  nitroSpeedFill: 0.02, // per second above 78 % of top speed
+  nitroDraftFill: 0.08, // per second in a full slipstream
+  nitroNearMiss: 0.08, // per near miss
+
+  // speedbreaker (slow motion, single player)
+  speedbreakScale: 0.45,
+  speedbreakDrain: 0.22, // meter per real second
+  speedbreakFill: 0.035, // meter per second while drifting or flat out
+  speedbreakGrip: 1.25,
+
+  // boost pads
   boostAccel: 9.5,
   boostTopSpeedBonus: 1.12,
-  driftBoostMinMeter: 0.25,
-  driftBoostDuration: 1.6, // seconds at a full meter
   padBoostDuration: 1.1,
   padBoostAccel: 12,
 
@@ -102,7 +127,7 @@ export function deriveParams(stats) {
     driftRearGrip: PHYSICS.driftRearGrip * (1.06 - drift * 0.018),
     driftStab: 0.8 + drift * 0.05, // multiplies how firmly the drift assist holds the angle
     driftAngleMul: 0.9 + drift * 0.025,
-    driftBoostGain: 0.18 + drift * 0.022, // meter per second at 30° / 30 m/s
+    driftBoostGain: 0.18 + drift * 0.022, // nitro fill per second at 30° / 30 m/s
     powerOversteer: 0.25 + accel * 0.05,
   };
 }

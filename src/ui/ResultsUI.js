@@ -20,7 +20,16 @@ export function renderResults(ui, state) {
   const race = ui.game.race;
   const cfg = race ? race.config : {};
   const level = cfg.levelId ? getLevel(cfg.levelId) : null;
-  const again = Button({ label: 'Race again', variant: 'primary', size: 'lg', hotkey: 'Enter', onClick: () => ui._restart() });
+  const net = ui.game.net;
+  const online = !!res.online && !!net;
+  let again;
+  if (online) {
+    // online: the host starts the next race from the lobby; everyone can go back to it
+    again = Button({ label: 'Back to lobby', variant: 'primary', size: 'lg', hotkey: 'Enter', onClick: () => {
+      if (net.isHost) net.backToLobby();
+      ui._go('select', { screen: 'lobby' });
+    } });
+  } else again = Button({ label: 'Race again', variant: 'primary', size: 'lg', hotkey: 'Enter', onClick: () => ui._restart() });
   again.dataset.autofocus = '';
   ui.primary = again;
   ui.back = () => ui._go('menu', { screen: 'main' });
@@ -29,6 +38,13 @@ export function renderResults(ui, state) {
   if (res.timedOut) {
     title = 'Time up';
     sub = 'The clock ran out before the finish.';
+  } else if (res.multi && res.mode === 'drift' && res.driftScores) {
+    const best = res.driftScores.slice().sort((a, b) => b.score - a.score)[0];
+    title = `${best.name} wins`;
+    sub = `${best.score} drift points`;
+  } else if (res.multi && res.mode === 'grandprix' && !res.online && res.winner) {
+    title = `${res.winner} wins`;
+    sub = 'Best placed driver';
   } else if (res.mode === 'grandprix') {
     title = `P${res.position}`;
     sub = res.position <= 3 ? `${medalName(res.position)} medal` : `Finished ${ordinal(res.position)} of ${res.rows.length}`;
@@ -55,7 +71,14 @@ export function renderResults(ui, state) {
   if (rec.drift && res.driftScore > 0) badges.push(Badge({ label: 'New drift record', tone: 'good' }));
   if (res.stars > res.previousStars) badges.push(Badge({ label: `+${res.stars - res.previousStars} ★`, tone: 'good' }));
   for (const u of res.newUnlocks || []) badges.push(Badge({ label: `Unlocked ${u.type}: ${u.name}`, tone: 'info' }));
-  const table = res.rows && res.rows.length > 1 ? standings(res.rows) : lapTable(res.lapTimes || []);
+  let table = res.rows && res.rows.length > 1 ? standings(res.rows) : lapTable(res.lapTimes || []);
+  if (res.driftScores && res.mode === 'drift') {
+    const sorted = res.driftScores.slice().sort((a, b) => b.score - a.score);
+    table = h('table', { className: 'standings' }, [
+      h('thead', {}, [h('tr', {}, [h('th', { text: 'Pos' }), h('th', { text: 'Driver' }), h('th', { text: 'Drift points' })])]),
+      h('tbody', {}, sorted.map((d, i) => h('tr', { className: i === 0 ? 'is-best' : '' }, [h('td', { text: String(i + 1) }), h('td', { text: d.name }), h('td', { text: String(d.score) })]))),
+    ]);
+  }
   let next = null;
   if (level) {
     const nl = LEVELS[level.index + 1];
@@ -76,7 +99,7 @@ export function renderResults(ui, state) {
         h('div', { className: 'results__stats' }, stats),
         badges.length ? h('div', { className: 'results__badges' }, badges) : null,
         table,
-        h('div', { className: 'results__actions' }, [again, next, Button({ label: 'Menu', variant: 'secondary', size: 'md', hotkey: 'Esc', onClick: () => ui._go('menu', { screen: 'main' }) })]),
+        h('div', { className: 'results__actions' }, [again, next, Button({ label: online ? 'Leave room' : 'Menu', variant: 'secondary', size: 'md', hotkey: 'Esc', onClick: () => ui._go('menu', { screen: 'main' }) })]),
       ],
     }),
   ]);

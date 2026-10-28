@@ -14,8 +14,9 @@ function byRank(a, b) {
 }
 
 export class RaceManager {
-  constructor({ mode, laps, racers, checkpoints, seed = 1 }) {
+  constructor({ mode, laps, racers, checkpoints, seed = 1, humans = 1 }) {
     this.mode = mode;
+    this.humans = humans; // local human drivers: the race closes when all have finished
     this.laps = laps; // 0 = unlimited (practice)
     this.racers = racers;
     this.cp = checkpoints;
@@ -33,6 +34,7 @@ export class RaceManager {
     this.goTime = -1;
     this.finishTime = -1;
     this.playerFinished = false;
+    this.humansFinished = 0;
     this.finishOrder = [];
     this.events = [];
   }
@@ -74,12 +76,27 @@ export class RaceManager {
     racer.finished = true;
     racer.finishTime = this.time + racer.penalty;
     this.finishOrder.push(racer);
-    if (racer.isPlayer) {
-      this.playerFinished = true;
-      this.state = 'finished';
-      this.finishTime = this.time;
-      this.events.push({ type: 'finish', racer });
+    if (racer.isHuman) {
+      this.humansFinished++;
+      if (this.humansFinished >= this.humans) {
+        this.playerFinished = true;
+        this.state = 'finished';
+        this.finishTime = this.time;
+        this.events.push({ type: 'finish', racer });
+      }
     }
+  }
+
+  get allHumansFinished() {
+    return this.humansFinished >= this.humans;
+  }
+
+  /** Close the race now (split-screen grace period ran out). */
+  forceFinish() {
+    if (this.state !== 'running') return;
+    this.state = 'finished';
+    this.finishTime = this.time;
+    this.events.push({ type: 'finish', racer: null });
   }
 
   /** Sort racers into positions (finished by time, others by progress). */
@@ -106,7 +123,8 @@ export class RaceManager {
       return {
         name: r.name,
         car: r.carDef.name,
-        isPlayer: r.isPlayer,
+        isPlayer: !!(r.isHuman || r.isRemote),
+        you: r === player,
         finished: r.finished,
         time,
         best: r.timer.bestLap,
@@ -115,7 +133,7 @@ export class RaceManager {
     });
     rows.sort((a, b) => a.time - b.time);
     rows.forEach((row, i) => (row.position = i + 1));
-    const me = rows.find((r) => r.isPlayer);
+    const me = rows.find((r) => r.you);
     return {
       mode: this.mode,
       laps: this.laps,

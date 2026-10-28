@@ -6,7 +6,7 @@ import { HazardBand } from './components/HazardBand.js';
 import { KeyHint } from './components/KeyHint.js';
 import { ToastStack } from './components/Toast.js';
 import { formatTime, formatDelta } from '../race/LapTimer.js';
-import { keyLabel } from '../controls/InputManager.js';
+import { keyLabel, SPLIT_SCHEMES } from '../controls/InputManager.js';
 
 const RPM_SEGMENTS = 16;
 
@@ -15,11 +15,18 @@ const RPM_SEGMENTS = 16;
  * in the corners. `update(d)` only touches the DOM when a value changes.
  */
 export class RaceHUD {
-  constructor(root, { mode, laps, opponents, units = 'kmh', touch = false, bindings, onTouch, onPause }) {
+  /**
+   * rect: [x, y, w, h] screen fractions for a split-screen view (null = full
+   * screen); compact: small-view layout; label: player tag; device: input
+   * device (key hints); speedbreak: show the speedbreaker gauge.
+   */
+  constructor(root, { mode, laps, opponents, units = 'kmh', touch = false, bindings, onTouch, onPause, rect = null, compact = false, label = null, device = 'all', speedbreak = false }) {
     this.mode = mode;
     this.units = units;
-    this.el = h('div', { className: 'hud layer-passive', attrs: { 'aria-live': 'off' } });
+    this.el = h('div', { className: `hud layer-passive${rect ? ' hud--split' : ''}${compact ? ' hud--compact' : ''}`, attrs: { 'aria-live': 'off' } });
+    if (rect) Object.assign(this.el.style, { left: `${rect[0] * 100}%`, top: `${rect[1] * 100}%`, width: `${rect[2] * 100}%`, height: `${rect[3] * 100}%`, right: 'auto', bottom: 'auto' });
     root.appendChild(this.el);
+    if (label) this.el.appendChild(h('div', { className: 'hud__player', text: label }));
 
     // top-left: position + lap
     this.posStat = Stat({ label: 'Pos', value: '-', unit: `/ ${opponents + 1}`, size: 'lg' });
@@ -52,14 +59,31 @@ export class RaceHUD {
       const seg = h('span', { className: 'hud__rpm-seg' + (i >= RPM_SEGMENTS - 4 ? ' is-red' : i >= RPM_SEGMENTS - 8 ? ' is-mid' : '') });
       this.rpmSegs.push(seg);
     }
+    const scheme = SPLIT_SCHEMES[device];
+    const b0 = bindings || {};
+    const keyOf = (a, fb) => (scheme && scheme[a] ? keyLabel(scheme[a][0]) : device.startsWith('pad') ? fb.pad : b0[a] && b0[a][0] ? keyLabel(b0[a][0]) : fb.key);
     this.boostFill = h('div', { className: 'hud__boost-fill' });
-    this.boostWrap = h('div', { className: 'hud__boost', attrs: { title: 'Drift boost' } }, [h('span', { className: 'hud__boost-label', text: 'Boost' }), h('div', { className: 'hud__boost-track' }, [this.boostFill])]);
+    this.boostWrap = h('div', { className: 'hud__boost', attrs: { title: 'Nitro: hold to burn. Refills from drifts, near misses, slipstream and flat-out speed.' } }, [
+      h('span', { className: 'hud__boost-label', text: `Nitro ${keyOf('boost', { key: 'Shift', pad: 'X' })}` }),
+      h('div', { className: 'hud__boost-track' }, [this.boostFill]),
+    ]);
+    this.sbFill = h('div', { className: 'hud__boost-fill hud__sb-fill' });
+    this.sbWrap = speedbreak
+      ? h('div', { className: 'hud__boost hud__sb', attrs: { title: 'Speedbreaker: slow motion. Refills while drifting or flat out.' } }, [
+          h('span', { className: 'hud__boost-label', text: `Speedbreaker ${keyOf('speedbreak', { key: 'Q', pad: 'LB' })}` }),
+          h('div', { className: 'hud__boost-track' }, [this.sbFill]),
+        ])
+      : null;
     const bc = h('div', { className: 'hud__bc' }, [
       h('div', { className: 'hud__rpm' }, this.rpmSegs),
       h('div', { className: 'hud__speed-row' }, [h('div', { className: 'hud__speed' }, [this.speedVal, this.speedUnit]), h('div', { className: 'hud__gear-box' }, [h('span', { className: 'hud__gear-label', text: 'Gear' }), this.gearVal])]),
       this.boostWrap,
+      this.sbWrap,
     ]);
     this.el.appendChild(bc);
+    // speedbreaker vignette
+    this.slowmo = h('div', { className: 'hud__slowmo' });
+    this.el.appendChild(this.slowmo);
 
     // drift cluster (centre)
     this.driftBanner = h('div', { className: 'hud__drift-banner', text: 'Drift' });
@@ -100,15 +124,15 @@ export class RaceHUD {
     this.el.appendChild(this.hold);
 
     // key hints (fade out after the start)
-    const b = bindings || {};
-    const k = (a, fallback) => (b[a] && b[a][0] ? keyLabel(b[a][0]) : fallback);
+    const kk = (a, fb) => keyOf(a, fb);
     this.hints = h('div', { className: 'hud__hints' }, [
-      KeyHint({ keys: [k('throttle', 'W'), k('brake', 'S')], label: 'Drive' }),
-      KeyHint({ keys: [k('left', 'A'), k('right', 'D')], label: 'Steer' }),
-      KeyHint({ keys: [k('handbrake', 'Space')], label: 'Drift' }),
-      KeyHint({ keys: [k('boost', 'Shift')], label: 'Boost' }),
-      KeyHint({ keys: [k('camera', 'C')], label: 'Camera' }),
-      KeyHint({ keys: ['Esc'], label: 'Pause' }),
+      KeyHint({ keys: scheme ? [kk('throttle', {}), kk('brake', {})] : device.startsWith('pad') ? ['RT', 'LT'] : [keyOf('throttle', { key: 'W' }), keyOf('brake', { key: 'S' })], label: 'Drive' }),
+      KeyHint({ keys: scheme ? [kk('left', {}), kk('right', {})] : device.startsWith('pad') ? ['L-stick'] : [keyOf('left', { key: 'A' }), keyOf('right', { key: 'D' })], label: 'Steer' }),
+      KeyHint({ keys: [keyOf('handbrake', { key: 'Space', pad: 'A' })], label: 'Drift' }),
+      KeyHint({ keys: [keyOf('boost', { key: 'Shift', pad: 'X' })], label: 'Nitro' }),
+      speedbreak ? KeyHint({ keys: [keyOf('speedbreak', { key: 'Q', pad: 'LB' })], label: 'Slow-mo' }) : null,
+      KeyHint({ keys: [keyOf('camera', { key: 'C', pad: 'B' })], label: 'Camera' }),
+      rect ? null : KeyHint({ keys: ['Esc'], label: 'Pause' }),
     ]);
     this.el.appendChild(this.hints);
     this.hintTime = 9;
@@ -191,8 +215,14 @@ export class RaceHUD {
     for (let i = 0; i < RPM_SEGMENTS; i++) setClass(this.rpmSegs[i], 'is-on', i < lit);
     setClass(this.el, 'is-limiter', limiter);
     setStyle(this.boostFill, 'transform', `scaleX(${d.boostMeter.toFixed(2)})`);
-    setClass(this.boostWrap, 'is-ready', d.boostMeter >= 0.25);
-    setClass(this.boostWrap, 'is-active', d.boosting);
+    setClass(this.boostWrap, 'is-ready', d.boostMeter >= 0.15);
+    setClass(this.boostWrap, 'is-active', !!d.nitroActive || d.boosting);
+    if (this.sbWrap && d.speedbreak >= 0) {
+      setStyle(this.sbFill, 'transform', `scaleX(${d.speedbreak.toFixed(2)})`);
+      setClass(this.sbWrap, 'is-ready', d.speedbreak > 0.15);
+      setClass(this.sbWrap, 'is-active', !!d.slowmo);
+    }
+    setClass(this.slowmo, 'is-on', !!d.slowmo);
 
     setText(this.posStat.valueEl, d.position > 0 ? d.position : '-');
     setText(this.lapStat.valueEl, d.lap > 0 ? d.lap : '-');

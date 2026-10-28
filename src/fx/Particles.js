@@ -121,10 +121,12 @@ export class Particles {
     }
   }
 
-  flame(x, y, z, dx, dz) {
+  /** Exhaust flame: orange for boost pads, blue core-heavy for nitrous. */
+  flame(x, y, z, dx, dz, nitro = false) {
     const r = Math.random;
-    const core = r() < 0.4;
-    this._spawn(x, y, z, dx * 6 + (r() - 0.5), (r() - 0.3) * 0.6, dz * 6 + (r() - 0.5), core ? 0.1 : 0.16, -0.3, 0.12 + r() * 0.08, 0.85, core ? this.colors.flameCore : this.colors.flame, 0, 2);
+    const core = r() < (nitro ? 0.7 : 0.4);
+    const size = nitro ? (core ? 0.14 : 0.2) : core ? 0.1 : 0.16;
+    this._spawn(x, y, z, dx * 7 + (r() - 0.5), (r() - 0.3) * 0.6, dz * 7 + (r() - 0.5), size, -0.3, 0.12 + r() * 0.1, 0.9, core ? this.colors.flameCore : this.colors.flame, 0, 2);
   }
 
   update(dt, camera) {

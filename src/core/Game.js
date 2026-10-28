@@ -14,6 +14,7 @@ import { showError, hideError } from '../ui/ErrorScreen.js';
 import { h } from '../ui/dom.js';
 import { CIRCUITS } from '../tracks/TrackData.js';
 import { getCar } from '../cars/CarData.js';
+import { NetSession } from '../net/NetSession.js';
 import { applyResults, LEVELS, getLevel, levelRaceConfig, levelTarget } from '../race/Campaign.js';
 import { starsFor } from '../race/Scoring.js';
 
@@ -90,6 +91,7 @@ export class Game {
     const phase = state.phase;
     const from = prev.phase;
     this.input.clearPresses();
+    if (phase === 'menu' && this.net) this.closeNet();
     if (phase === 'menu' || phase === 'select') {
       this._leaveRace();
       this._ensureMenuScene();
@@ -104,7 +106,8 @@ export class Game {
       this._leaveRace();
       this.audio.stopMusic();
       this.race = new RaceScene(this, state.raceConfig);
-      this.race.rig.setAspect(this.aspect || window.innerWidth / Math.max(1, window.innerHeight));
+      this.renderer.shadowMap.enabled = this.quality.preset.shadows && this.race.humanDefs.length === 1;
+      this._applyAspects();
       this.race.onFinished = (res) => this._onRaceFinished(res);
       this.loader = this.race.load();
       this.loadProgress = 0;
@@ -113,6 +116,7 @@ export class Game {
       if (from === 'loading') {
         this._disposeBackdrops();
         this.race.begin();
+        if (this.race.online && this.net) this.net.loaded();
       } else if (from === 'paused' && state.resumeTo === 'countdown') {
         this.race.setPaused(false);
         this.audio.setPaused(false);
@@ -126,19 +130,25 @@ export class Game {
     }
     if (phase === 'racing' && from === 'paused') {
       this.race.setPaused(false);
+      this.race.inputBlocked = false;
       this.audio.setPaused(false);
       this.loop.resetClock();
     }
     if (phase === 'paused') {
-      this.race.setPaused(true);
-      this.audio.setPaused(true);
+      if (this.race.online) {
+        // online: other drivers keep racing, so the race never freezes; my car coasts
+        this.race.inputBlocked = true;
+      } else {
+        this.race.setPaused(true);
+        this.audio.setPaused(true);
+      }
       this.input.releaseAll();
     }
     if (phase === 'results') {
       this.audio.setPaused(false);
       this.audio.stopRace();
     }
-    if (this.race && this.race.hud) this.race.hud.el.classList.toggle('is-hidden', phase === 'paused' || phase === 'results');
+    if (this.race && this.race.humans) for (const hm of this.race.humans) if (hm.hud) hm.hud.el.classList.toggle('is-hidden', phase === 'paused' || phase === 'results');
     this.ui.render(state, prev);
   }
 
@@ -178,6 +188,73 @@ export class Game {
     this.loader = null;
     this.input.releaseAll();
     this.renderer.renderLists.dispose();
+    this.renderer.shadowMap.enabled = this.quality.preset.shadows;
+  }
+
+  /** Every race camera gets the aspect of its own screen rectangle. */
+  _applyAspects() {
+    if (!this.race) return;
+    const w = window.innerWidth;
+    const hh = Math.max(1, window.innerHeight);
+    // (before load() builds the drivers this is a no-op; it runs again after loading)
+    for (const hm of this.race.humans) hm.rig.setAspect((hm.rect[2] * w) / Math.max(1, hm.rect[3] * hh));
+  }
+
+  // ------------------------------------------------------------------ online
+
+  /** Use an online room (lobby → races). */
+  attachNet(session) {
+    if (this.net && this.net !== session) this.closeNet();
+    this.net = session;
+    this._netOut = [];
+    session.on('start', (m) => this._netStart(m));
+    session.on('go', () => {
+      if (this.race) this.race.go();
+    });
+    session.on('lobby', () => this.ui.onLobby && this.ui.onLobby());
+    session.on('error', (err) => {
+      this.ui.toast(err.message || String(err), 'warn');
+      if (session.state === 'closed') {
+        this.net = null;
+        if (this.store.phase !== 'menu') this.quitToMenu();
+      }
+    });
+  }
+
+  closeNet() {
+    const n = this.net;
+    this.net = null;
+    if (n) n.close();
+  }
+
+  _netStart(m) {
+    const net = this.net;
+    if (!net) return;
+    const s = this.save.data.settings;
+    const me = net.me;
+    const raceConfig = {
+      circuitId: m.settings.circuitId,
+      mode: 'grandprix',
+      laps: m.settings.laps,
+      opponents: 0,
+      difficulty: 'medium',
+      carId: me.carId,
+      liveryId: me.livery,
+      camera: s.camera,
+      units: s.units,
+      assists: s.assists,
+      handling: s.handling,
+      minimap: s.showMinimap,
+      target: null,
+      obstacles: true,
+      moving: true,
+      tokens: false,
+      humans: [{ name: me.name, carId: me.carId, liveryId: me.livery, device: 'all' }],
+      online: { players: m.players, mySlot: net.slot, isHost: net.isHost, ai: m.settings.ai || 0 },
+    };
+    const p = this.store.phase;
+    if (p === 'racing' || p === 'countdown' || p === 'paused') this.store.go('menu', { screen: 'main' });
+    this.store.go('loading', { raceConfig });
   }
 
   /** Build a race config from the store selection and start loading. */
@@ -196,12 +273,14 @@ export class Game {
       units: s.units,
       assists: s.assists,
       minimap: s.showMinimap,
+      handling: s.handling,
       target: cfg.target || null,
       levelId: cfg.levelId || null,
       levelIndex: cfg.levelIndex || 0,
       obstacles: cfg.obstacles !== false,
       moving: cfg.moving !== false,
       tokens: cfg.tokens !== false,
+      humans: cfg.humans || null,
     };
     this.store.go('loading', { raceConfig });
   }
@@ -216,6 +295,7 @@ export class Game {
   }
 
   restartRace() {
+    if (this.race && this.race.online) return; // online races restart from the lobby
     const p = this.store.phase;
     if (p === 'racing' || p === 'paused' || p === 'results' || p === 'countdown') this.store.go('countdown', { resumeTo: null });
   }
@@ -250,7 +330,7 @@ export class Game {
 
   step(dt) {
     const p = this.store.phase;
-    if (this.race && (p === 'countdown' || p === 'racing')) this.race.step(dt);
+    if (this.race && (p === 'countdown' || p === 'racing' || (p === 'paused' && this.race.online))) this.race.step(dt);
     else if (this.menuScene && (p === 'menu' || p === 'select')) this.menuScene.step(dt);
     else if (this.garageScene && p === 'garage') this.garageScene.step(dt);
   }
@@ -272,16 +352,24 @@ export class Game {
       if (r.done || (r.value && r.value.progress >= 1)) {
         this.loader = null;
         this.ui.setLoading(1, 'Ready');
+        this._applyAspects();
         this.store.go('countdown');
       }
     }
 
     let scene = null;
     let camera = null;
+    let views = null;
     if (this.race && this.race.ready && p !== 'loading') {
+      if (this.net && this.race.online) {
+        this.net.setOutgoing(this.race.netStates(this._netOut));
+        this.net.tick(dt);
+        this.race.applyNet(this.net.remote);
+      }
       this.race.frame(alpha, dt);
       scene = this.race.scene;
       camera = this.race.camera;
+      if (this.race.humans.length > 1) views = this.race.views;
     } else if (this.garageScene && p === 'garage') {
       this.garageScene.frame(alpha, dt);
       scene = this.garageScene.scene;
@@ -297,7 +385,8 @@ export class Game {
       const render = this.renderMode === 'always' || this.renderRequests > 0;
       if (render) {
         this.renderer.info.reset();
-        this.renderer.render(scene, camera);
+        if (views) this._renderViews(scene, views);
+        else this.renderer.render(scene, camera);
         if (this.renderRequests > 0) this.renderRequests--;
       }
     }
@@ -305,6 +394,28 @@ export class Game {
     this.frameMs = performance.now() - t0;
     if (p === 'racing' && this.quality.adaptive && this.renderMode === 'always') this.quality.sample(dt * 1000, dt);
     if (this.debugOverlay) this._updateDebugOverlay(dt);
+  }
+
+  /** Split-screen: one scissored viewport per local driver. */
+  _renderViews(scene, views) {
+    const r = this.renderer;
+    const w = window.innerWidth;
+    const hh = window.innerHeight;
+    r.setScissorTest(true);
+    for (let k = 0; k < views.length; k++) {
+      const [x, y, vw, vh] = views[k].rect;
+      const px = Math.round(x * w);
+      const pw = Math.round((x + vw) * w) - px;
+      const top = Math.round(y * hh);
+      const ph = Math.round((y + vh) * hh) - top;
+      const py = hh - top - ph; // WebGL viewports start at the bottom
+      r.setViewport(px, py, pw, ph);
+      r.setScissor(px, py, pw, ph);
+      this.race.prepareView(k);
+      r.render(scene, views[k].camera);
+    }
+    r.setScissorTest(false);
+    r.setViewport(0, 0, w, hh);
   }
 
   _globalKeys() {
@@ -318,12 +429,23 @@ export class Game {
     if (input.consume('debug')) this.toggleDebugOverlay();
     if (p === 'racing' || p === 'countdown') {
       if (input.consume('pause')) this.requestPause();
+      if (input.consume('speedbreak') && p === 'racing') this.race.toggleSpeedbreak();
+      if (this.race.humans.length > 1) {
+        // split-screen: camera / reset per player device
+        input.consume('camera');
+        input.consume('reset');
+        for (const hm of this.race.humans) {
+          if (input.consumeDevice(hm.device, 'camera')) hm.hud.toast(`Camera: ${hm.rig.cycle()}`);
+          if (input.consumeDevice(hm.device, 'reset') && p === 'racing') this.race.resetPlayer(hm.racer);
+        }
+        return;
+      }
       if (input.consume('camera')) {
         const mode = this.race.rig.cycle();
         this.ui.toast(`Camera: ${mode}`);
       }
-      // reset: tap = back on track, hold 1 s = full restart
-      const held = input.heldFor('reset');
+      // reset: tap = back on track, hold 1 s = full restart (not online)
+      const held = this.race.online ? 0 : input.heldFor('reset');
       this.race.resetHold = held;
       if (held > 1.0) {
         input.holdStart.delete('reset');
@@ -339,6 +461,7 @@ export class Game {
     } else {
       input.consume('camera');
       input.consume('reset');
+      input.consume('speedbreak');
       // gamepad Start / P / Esc resume from pause (the menu also handles Esc directly)
       // (keyboard Esc / P is handled by the menu's own key listener)
       if (input.consume('pause') && p === 'paused' && input.lastDevice === 'gamepad' && !this.ui.overlayOpen()) this.resume();
@@ -387,7 +510,7 @@ export class Game {
     this.renderer.setPixelRatio(this.quality.computePixelRatio());
     this.renderer.setSize(w, hgt, false);
     const aspect = w / Math.max(1, hgt);
-    if (this.race) this.race.rig.setAspect(aspect);
+    if (this.race && this.race.humans.length) this._applyAspects();
     if (this.menuScene) this.menuScene.setAspect(aspect);
     if (this.garageScene) this.garageScene.setAspect(aspect);
     this.aspect = aspect;
@@ -510,6 +633,24 @@ export class Game {
         return window.__apex.info();
       },
       save: () => game.save.data,
+      /** Online test helpers (kind 'local' = BroadcastChannel between tabs). */
+      netCreate: async (kind = 'local', name = 'Host', code) => {
+        const s = new NetSession({ kind, name, carId: game.save.data.carId });
+        await s.create(code);
+        game.attachNet(s);
+        game.store.go('select', { screen: 'lobby' });
+        return s.code;
+      },
+      netJoin: async (kind, code, name = 'Guest') => {
+        const s = new NetSession({ kind, name, carId: game.save.data.carId });
+        await s.join(code);
+        game.attachNet(s);
+        game.store.go('select', { screen: 'lobby' });
+        return s.slot;
+      },
+      netSettings: (patch) => game.net && game.net.setSettings(patch),
+      netStart: () => game.net && game.net.start(),
+      netInfo: () => (game.net ? { code: game.net.code, slot: game.net.slot, host: game.net.isHost, players: game.net.players.map((p) => p.name), remote: [...game.net.remote.keys()], state: game.net.state } : null),
       levels: () => LEVELS.map((l) => ({ id: l.id, index: l.index, mode: l.mode })),
       startLevel: (id) => game.startRace(levelRaceConfig(getLevel(id), game.save.data)),
       /** Scoring + unlock rules on synthetic results, against a throwaway in-memory save. */

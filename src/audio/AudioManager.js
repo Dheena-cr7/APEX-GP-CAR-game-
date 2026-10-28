@@ -152,18 +152,19 @@ export class AudioManager {
   }
 
   /** Per-frame engine update from the player's vehicle. */
-  updateCar(v, grid) {
+  updateCar(v, grid, timeScale = 1) {
     const e = this.engine;
     if (!e || !this.ctx || this.paused) return;
     const t = this.ctx.currentTime;
     const rpm = v.rpm;
-    const f = 34 + (rpm / 12500) * 150;
+    // slow motion (speedbreaker) drops the whole engine note
+    const f = (34 + (rpm / 12500) * 150) * (0.55 + 0.45 * timeScale);
     e.o1.frequency.setTargetAtTime(f, t, 0.03);
     e.o2.frequency.setTargetAtTime(f * 2.01, t, 0.03);
     e.o3.frequency.setTargetAtTime(f * 0.5, t, 0.03);
     const thr = grid ? v.throttle * 0.6 : v.throttle;
     e.filter.frequency.setTargetAtTime(500 + thr * 2400 + (rpm / 12500) * 900, t, 0.05);
-    e.out.gain.setTargetAtTime(0.07 + thr * 0.09 + (v.boostTime > 0 ? 0.04 : 0), t, 0.05);
+    e.out.gain.setTargetAtTime(0.07 + thr * 0.09 + (v.boostTime > 0 || v.nitroActive ? 0.05 : 0), t, 0.05);
     const squeal = Math.min(1, v.skid) * (v.u > 6 ? 1 : 0);
     e.sqg.gain.setTargetAtTime(squeal * 0.16, t, 0.05);
     e.sqf.frequency.setTargetAtTime(1500 + Math.abs(v.slip) * 900, t, 0.08);
