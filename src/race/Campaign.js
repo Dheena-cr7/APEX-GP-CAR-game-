@@ -1,4 +1,4 @@
-// Campaign: 4 circuits × 3 variants = 12 levels, star scoring, unlocks and
+// Campaign: 5 circuits × 3 variants = 15 levels, star scoring, unlocks and
 // writing results into the save.
 
 import { CIRCUITS, CIRCUIT_ORDER } from '../tracks/TrackData.js';
@@ -12,7 +12,7 @@ export const VARIANTS = Object.freeze(['grandprix', 'timeattack', 'drift']);
 export const VARIANT_LABELS = Object.freeze({ grandprix: 'Grand Prix', timeattack: 'Time Attack', drift: 'Drift Challenge' });
 
 // stars needed to open each circuit (in CIRCUIT_ORDER)
-export const CIRCUIT_UNLOCK = Object.freeze({ beginner: 0, street: 5, speed: 11, technical: 17 });
+export const CIRCUIT_UNLOCK = Object.freeze({ beginner: 0, street: 5, speed: 11, technical: 17, night: 23 });
 // stars needed for liveries beyond the starter set
 export const LIVERY_UNLOCK = Object.freeze({ sunset: 3, cobalt: 9, jade: 15, magenta: 22 });
 
@@ -21,6 +21,7 @@ const GP_SETUP = Object.freeze({
   street: { laps: 3, opponents: 6, difficulty: 'medium' },
   speed: { laps: 3, opponents: 7, difficulty: 'medium' },
   technical: { laps: 2, opponents: 7, difficulty: 'hard' },
+  night: { laps: 3, opponents: 7, difficulty: 'hard' },
 });
 
 const idealCache = new Map();

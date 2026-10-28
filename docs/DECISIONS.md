@@ -38,3 +38,14 @@ One line per non-obvious choice.
 - Adaptive quality: sustained slow frames lower the pixel ratio (down to 0.6×), then step the preset down and switch shadows off on Low.
 - Lights' shadow maps are render targets and must be disposed explicitly; without it every race leaked 4 textures.
 - Deployment: `vercel.json` (Vite, `dist/`) and a GitHub Actions Pages workflow; relative `base` serves both.
+
+## Update: NFS-style handling, multiplayer, tracks
+
+- Arcade handling (the default) replaces tyre-limited drifting with a drift *state*: steering sets the path turn rate and the slip angle (0.1–0.8 rad), throttle holds the slide, and releasing or counter-steering straightens. Entry is by handbrake + steer, brake-tap + turn-in (0.45 s window) or a large natural slip. Speed loss in a slide comes from `arcadeScrub` and the drive factor, so drifting is never faster than gripping (the first attempt gained 32 → 55 m/s). The Sim model stays one setting away.
+- The old auto-firing drift boost confused players. It is now a nitro tank you hold to burn, refilled by drifting, speed, slipstream, near misses and tokens.
+- Speedbreaker scales the race time step (0.45×), adds grip and lowers the audio pitch. Single player only, because it would desync other players' clocks.
+- Split-screen renders each human's camera into a scissored viewport (layouts for 1–6) with one HUD each. Shadows switch off with more than one view to keep draw calls in budget. Keyboard schemes are WASD and the arrows, then gamepads.
+- Online uses a star topology through the host: each client simulates its own car and sends a compact state array at 15 Hz, and the host also simulates the AI and relays everything. Remote cars are extrapolated and smoothed. No server is needed beyond the free PeerJS broker. A BroadcastChannel transport with the same protocol makes it testable in one browser.
+- Night City GP: asphalt run-off (no gravel in a city), plus a tunnel and an overpass built from track-space data (`tunnels`, `overpasses`). TV cameras are skipped inside the tunnel.
+- The chase camera's clamp projection keeps a hint index. `snap()` now resets it; before, a long jump clamped the camera near the old position.
+

@@ -154,6 +154,7 @@ export class TrackModel {
     this.runoff = def.runoff ?? 10;
     // barrier gaps (side-street junctions for crossing traffic)
     this.gaps = [];
+    this.tunnels = (def.tunnels || []).map(([a, b]) => [a * length, b * length]);
     for (const mv of def.moving || []) {
       if (mv.type === 'truck') this.gaps.push({ s: mv.u * length, half: 7 });
     }
@@ -209,6 +210,12 @@ export class TrackModel {
       maxY = Math.max(maxY, this.py[i]);
     }
     this.bounds = { minX, maxX, minZ, maxZ, minY, maxY };
+  }
+
+  /** True inside a tunnel section. */
+  isTunnel(s) {
+    for (const [a, b] of this.tunnels) if (this.deltaS(a, s) >= 0 && this.deltaS(s, b) >= 0) return true;
+    return false;
   }
 
   /** True if the barrier is open at s (junction). */
@@ -368,6 +375,7 @@ export class TrackModel {
     if (at <= hw) return SURFACES.asphalt;
     const right = t > 0;
     if (at <= hw + KERB.width && (right ? this.kerbR[i] : this.kerbL[i])) return SURFACES.kerb;
+    if (this.def.runoffSurface === 'asphalt') return SURFACES.asphalt;
     if (right ? this.sandR[i] : this.sandL[i]) return SURFACES.sand;
     return SURFACES.grass;
   }

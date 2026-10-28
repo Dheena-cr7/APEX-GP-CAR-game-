@@ -26,7 +26,7 @@ import { renderResults } from './ResultsUI.js';
 import { renderMultiplayer, renderSplit, renderOnline, renderLobby } from './MultiplayerUI.js';
 
 const MODES = [
-  { id: 'campaign', name: 'Campaign', desc: '12 levels across 4 circuits. Earn stars to unlock circuits, cars and liveries.', badge: { label: '12 levels', tone: 'solid' } },
+  { id: 'campaign', name: 'Campaign', desc: '15 levels across 5 circuits. Earn stars to unlock circuits, cars and liveries.', badge: { label: '15 levels', tone: 'solid' } },
   { id: 'grandprix', name: 'Grand Prix', desc: 'Race a full grid of AI drivers. Pick laps, grid size and difficulty.', badge: { label: 'vs AI', tone: 'info' } },
   { id: 'timetrial', name: 'Time Trial', desc: 'Solo laps against the clock. Your personal best sets the delta.', badge: { label: 'Solo', tone: 'neutral' } },
   { id: 'drift', name: 'Drift Challenge', desc: 'Chain long slides for points. Drift zones double the score.', badge: { label: 'Score', tone: 'good' } },
@@ -34,9 +34,11 @@ const MODES = [
 ];
 
 const TIPS = [
-  'Tap the handbrake while turning in to start a drift, then hold the throttle to keep it.',
-  'Counter-steer to straighten a slide. Lifting off ends a drift and banks the points.',
-  'A long drift fills the boost meter — it fires when you straighten, or press Shift.',
+  'Tap the handbrake (or the brake) while turning in to start a drift, then hold the throttle to keep it.',
+  'Let go of the steering or counter-steer to straighten a slide. Lifting off ends it and banks the points.',
+  'Drifting, flat-out speed and near misses fill the nitro tank. Hold Shift to burn it.',
+  'Press Q for Speedbreaker: slow motion that makes tight corners and traffic easy.',
+  'Multiplayer: up to 6 players on one screen, or online with a room code.',
   'Hitting a wall breaks your drift combo and loses the unbanked points.',
   'Blue chevron pads give a burst of speed. Amber means hazard.',
   'Tuck in behind a rival on a straight to catch the slipstream.',
@@ -154,7 +156,7 @@ export class MenuUI {
         h('div', { className: 't-label-sm t-secondary', text: 'Season 01 · Low-poly formula racing' }),
         h('h1', { className: 't-hero hero-card__title', text: 'Apex GP' }),
         HazardBand({}),
-        h('p', { className: 't-body', text: 'Twelve levels, four circuits, six cars. Race, drift and chase the perfect lap.' }),
+        h('p', { className: 't-body', text: 'Fifteen levels, five circuits, six cars. Drift, burn nitro, race your friends.' }),
         h('div', { className: 'hero-card__actions' }, [
           drive,
           Button({ label: 'Multiplayer', variant: 'secondary', size: 'md', onClick: () => this._go('select', { screen: 'mp' }) }),
@@ -889,7 +891,8 @@ export class MenuUI {
       row('Brake / reverse', b.brake.map(keyLabel)),
       row('Steer', [...b.left.map(keyLabel), ...b.right.map(keyLabel)]),
       row('Handbrake / drift', b.handbrake.map(keyLabel)),
-      row('Drift boost', b.boost.map(keyLabel)),
+      row('Nitro (hold)', b.boost.map(keyLabel)),
+      row('Speedbreaker', b.speedbreak.map(keyLabel)),
       row('Camera', b.camera.map(keyLabel)),
       row('Reset (hold: restart)', b.reset.map(keyLabel)),
       row('Pause', DEFAULT_BINDINGS.pause.map(keyLabel)),
@@ -900,7 +903,8 @@ export class MenuUI {
       row('Throttle / brake', ['RT', 'LT']),
       row('Steer', ['L-stick']),
       row('Drift', ['A']),
-      row('Boost', ['X', 'RB']),
+      row('Nitro', ['X', 'RB']),
+      row('Speedbreaker', ['LB']),
       row('Camera', ['B']),
       row('Reset (hold: restart)', ['Y']),
       row('Pause', ['Start']),
@@ -916,7 +920,7 @@ export class MenuUI {
           h('section', {}, [h('h2', { className: 't-label-sm t-secondary', text: 'Gamepad' }), gp, h('h2', { className: 't-label-sm t-secondary', text: 'Touch' }), h('p', { className: 't-body', text: 'On touch screens, on-screen buttons appear during a race: steer on the left, gas / brake / drift / boost on the right.' })]),
           h('section', {}, [
             h('h2', { className: 't-label-sm t-secondary', text: 'Drifting' }),
-            h('p', { className: 't-body', text: 'Turn in and tap the handbrake (or brake hard) to break the rear loose. Keep the throttle on to hold the slide; steer into it to widen the angle, counter-steer to straighten. Points bank when you straighten; hitting a wall or leaving the track loses the unbanked points.' }),
+            h('p', { className: 't-body', text: 'Arcade handling (the default) drifts like Need for Speed: turn in and tap the handbrake or the brake, keep the throttle on, and the car holds the slide at a steady angle. Steer into it to tighten the line, let go or counter-steer to straighten. Drifting fills the nitro tank. Points bank when you straighten; hitting a wall or leaving the track loses the unbanked points. Switch to Sim handling in Settings for the realistic model.' }),
           ]),
         ]),
         h('div', { className: 'sub-panel__actions' }, [done]),

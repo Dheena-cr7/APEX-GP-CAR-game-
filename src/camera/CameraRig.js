@@ -37,6 +37,7 @@ export class CameraRig {
     const count = Math.max(6, Math.round(model.length / 140));
     for (let i = 0; i < count; i++) {
       const s = (model.length * (i + 0.5)) / count;
+      if (model.isTunnel(s) || model.isTunnel(s + 40) || model.isTunnel(s - 40)) continue;
       const side = i % 2 ? 1 : -1;
       const t = side * (model.wallOffset(s) + 2.5);
       model.pointAt(s, t, p);
@@ -73,6 +74,7 @@ export class CameraRig {
 
   snap() {
     this.chase.initialized = false;
+    this._proj.i = -1; // long jumps: the cached projection hint is stale
     this.tvIndex = -1;
   }
 

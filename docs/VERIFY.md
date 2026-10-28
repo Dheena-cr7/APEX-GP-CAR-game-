@@ -71,6 +71,8 @@ Remaining observations, not defects: AI grids repeat car models (5 models for 7 
 | 52-no-webgl, 53-context-lost | error screens |
 | 54-phone-menu, 55-phone-race | touch device, 844×390 |
 | 56-debug-view | `?debugview` top-down view + F3 overlay |
+| 57-split-screen | 3 local players on Night City GP |
+| 58-online-guest | a guest's view of an online race (3 tabs) |
 
 ## Not covered by automation
 

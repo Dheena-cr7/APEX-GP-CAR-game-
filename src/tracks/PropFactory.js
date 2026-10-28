@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { MeshBuilder, shadeHex } from './MeshBuilder.js';
 import { SEMANTIC, UI } from '../core/Palette.js';
+import { WALL } from '../cars/Sizes.js';
 
 // Procedural scenery. Every repeated prop is one InstancedMesh; props are
 // always placed outside the barriers with clearance, so neither cars nor the
@@ -290,8 +291,8 @@ export function buildProps(track, model, def, theme, rng, density = 1) {
     const list = [];
     const num = n('grandstands');
     for (let i = 0; i < num; i++) {
-      const s = model.wrapS(-160 + i * (320 / Math.max(1, num - 1)) + rng.range(-10, 10));
-      const side = i % 2 === 0 ? -1 : 1;
+      const s = model.wrapS(-160 + i * (want.pits ? 50 : 320 / Math.max(1, num - 1)) + rng.range(-6, 6));
+      const side = want.pits ? -1 : i % 2 === 0 ? -1 : 1;
       const pt = { x: 0, y: 0, z: 0, tx: 0, tz: 1 };
       const off = model.wallOffset(s) + 12;
       model.pointAt(s, side * off, pt);
@@ -388,6 +389,167 @@ export function buildProps(track, model, def, theme, rng, density = 1) {
     add(instanced(kitLamp(), mat, list, 'lamps'));
     const heads = list.map((it) => ({ x: it.x + Math.cos(it.rot) * 1.3, y: it.y + 6.82, z: it.z - Math.sin(it.rot) * 1.3, rot: it.rot, sx: 1.2, sy: 0.12, sz: 0.25 }));
     add(instanced(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: UI.chalk }), heads, 'lamp-heads', { colors: [UI.warnAmber] }));
+    // pools of light on the road under each lamp
+    const pools = list.map((it, i) => {
+      const s = (model.length * i) / n('lamps');
+      const side = i % 2 ? 1 : -1;
+      const p2 = { x: 0, y: 0, z: 0, tx: 0, tz: 1 };
+      const t = side * (model.halfWidthAt(s) - 2.5);
+      model.pointAt(s, t, p2);
+      return { x: p2.x, y: model.heightAt(s, t) + 0.04, z: p2.z, rot: 0, sx: 1, sy: 1, sz: 1 };
+    });
+    const poolGeo = new THREE.CircleGeometry(5.5, 12);
+    poolGeo.rotateX(-Math.PI / 2);
+    add(instanced(poolGeo, new THREE.MeshBasicMaterial({ color: UI.warnAmber, transparent: true, opacity: 0.16, depthWrite: false, blending: THREE.AdditiveBlending, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }), pools, 'light-pools'));
+    count += list.length;
+  }
+  // ---------------------------------------------------------------- trackside detail
+  const pt = { x: 0, y: 0, z: 0, tx: 0, tz: 1 };
+  const L = model.length;
+  const blocked = (s) => model.isGap(s) || model.isTunnel(s);
+  const curv = (s) => Math.abs(model.kappa[model.index(s)]);
+
+  // clouds: flat low-poly puffs high above the circuit (day themes)
+  if (n('clouds') && !theme.night) {
+    const b = new MeshBuilder();
+    addCone(b, 0, 0, 0, 1, 0.35, 7, UI.chalk, UI.chalk);
+    addCone(b, 0.6, 0.05, 0.3, 0.7, 0.3, 6, UI.chalk, UI.chalk);
+    addCone(b, -0.55, 0.02, -0.2, 0.65, 0.28, 6, UI.chalk, UI.chalk);
+    const geo = b.build();
+    const list = [];
+    for (let i = 0; i < n('clouds'); i++) {
+      const a = rng.range(0, Math.PI * 2);
+      const d = rng.range(0, radius + 500);
+      const sc = rng.range(40, 90);
+      list.push({ x: cx + Math.sin(a) * d, y: model.bounds.maxY + rng.range(160, 260), z: cz + Math.cos(a) * d, rot: rng.range(0, 6.28), sx: sc, sy: sc * 0.8, sz: sc * rng.range(0.5, 0.8) });
+    }
+    add(instanced(geo, new THREE.MeshBasicMaterial({ vertexColors: true, fog: false, transparent: true, opacity: 0.85 }), list, 'clouds'));
+  }
+
+  // catch fences: posts on the barriers + two rails (not in junctions / tunnels)
+  if (want.fences) {
+    const posts = [];
+    const rails = new MeshBuilder();
+    const railCol = shadeHex(theme.wall, -0.25);
+    for (const side of [-1, 1]) {
+      for (let s = 0; s < L; s += 9) {
+        if (blocked(s) || blocked(s + 9)) continue;
+        const off = side * (model.wallOffset(s) + WALL.thickness * 0.5);
+        model.pointAt(s, off, pt);
+        const top = model.heightAt(s, side * model.wallOffset(s)) + WALL.height;
+        posts.push({ x: pt.x, y: top, z: pt.z, rot: 0, sx: 0.09, sy: 3.2, sz: 0.09 });
+        const off1 = side * (model.wallOffset(s + 9) + WALL.thickness * 0.5);
+        for (const hgt of [1.5, 3.1]) {
+          model.pointAt(s, off, pt);
+          const a = rails.v(pt.x, top + hgt, pt.z, railCol);
+          const a2 = rails.v(pt.x, top + hgt + 0.08, pt.z, railCol);
+          model.pointAt(s + 9, off1, pt);
+          const top1 = model.heightAt(s + 9, side * model.wallOffset(s + 9)) + WALL.height;
+          const c = rails.v(pt.x, top1 + hgt + 0.08, pt.z, railCol);
+          const d = rails.v(pt.x, top1 + hgt, pt.z, railCol);
+          rails.quad(a, a2, c, d);
+        }
+      }
+    }
+    add(instanced(kitBuilding({ props: shadeHex(theme.wall, -0.3) }), mat, posts, 'fence-posts'));
+    const railMesh = new THREE.Mesh(rails.build(), new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+    railMesh.name = 'fence-rails';
+    group.add(railMesh);
+  }
+
+  // wall banners along the straights (on the inner face of the barrier)
+  if (n('banners')) {
+    const list = [];
+    const colors = [theme.accent, UI.chalk, UI.infoBlue, UI.red, UI.goodGreen];
+    let placed = 0;
+    for (let k = 0; k < 400 && placed < n('banners'); k++) {
+      const s = rng.range(0, L);
+      if (blocked(s) || curv(s) > 1 / 300 || curv(s + 12) > 1 / 300) continue;
+      const side = rng.sign();
+      const off = side * (model.wallOffset(s) - 0.03);
+      model.pointAt(s, off, pt);
+      const top = model.heightAt(s, off) + WALL.height;
+      list.push({ x: pt.x, y: top - 0.62, z: pt.z, rot: Math.atan2(pt.tx, pt.tz), sx: 0.04, sy: 0.6, sz: 9 });
+      placed++;
+    }
+    add(instanced(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshLambertMaterial({ color: UI.chalk }), list, 'banners', { colors }));
+    count += list.length;
+  }
+
+  // pit building behind the barrier along the start straight
+  if (want.pits) {
+    const b = new MeshBuilder();
+    const side = 1;
+    for (let s = -100; s < 40; s += 10) {
+      const ss = model.wrapS(s);
+      const off = side * (model.wallOffset(ss) + 16);
+      model.pointAt(ss, off, pt);
+      const y = model.heightAt(ss, side * model.wallOffset(ss)) - 0.3;
+      const hd = Math.atan2(pt.tx, pt.tz);
+      addBox(b, pt.x, y + 3, pt.z, 14, 6, 10.2, shadeHex(UI.chalk, -0.12), hd);
+      // garage door facing the track
+      model.pointAt(ss, side * (model.wallOffset(ss) + 8.95), pt);
+      addBox(b, pt.x, y + 2, pt.z, 0.1, 3.6, 6.5, UI.void, hd);
+      model.pointAt(ss, side * (model.wallOffset(ss) + 16), pt);
+      addBox(b, pt.x, y + 6.3, pt.z, 14.4, 0.6, 10.4, theme.accent, hd);
+    }
+    const mesh = new THREE.Mesh(b.build(), mat);
+    mesh.name = 'pits';
+    group.add(mesh);
+    for (let s = -100; s < 40; s += 10) {
+      const ss = model.wrapS(s);
+      model.pointAt(ss, side * (model.wallOffset(ss) + 16), pt);
+      box(pt.x, model.heightAt(ss, side * model.wallOffset(ss)) - 0.3, pt.z, Math.atan2(pt.tx, pt.tz), -7.2, 7.2, -5.2, 5.2, 6.6);
+    }
+  }
+
+  // braking boards (3 / 2 / 1 stripes at 150 / 100 / 50 m) before big corners
+  if (want.boards) {
+    const sets = [[], [], []];
+    let straight = 0;
+    for (let s = 0; s < L; s += 2) {
+      const k = curv(s);
+      if (k < 1 / 200) straight += 2;
+      else {
+        if (straight > 160 && k > 1 / 90) {
+          const side = model.kappa[model.index(s)] > 0 ? 1 : -1; // outside of the corner
+          [150, 100, 50].forEach((dist, j) => {
+            const sb = model.wrapS(s - dist);
+            if (blocked(sb)) return;
+            const off = side * (model.wallOffset(sb) + 2.4);
+            model.pointAt(sb, off, pt);
+            sets[j].push({ x: pt.x, y: model.heightAt(sb, side * model.wallOffset(sb)) - 0.2, z: pt.z, rot: Math.atan2(pt.tx, pt.tz) + Math.PI / 2 });
+          });
+        }
+        straight = 0;
+      }
+    }
+    sets.forEach((list, j) => {
+      const b = new MeshBuilder();
+      addBox(b, 0, 1.5, 0, 0.2, 3, 0.2, SEMANTIC.carbon);
+      addBox(b, 0, 3.4, 0, 2.2, 1.4, 0.14, UI.chalk);
+      for (let k = 0; k < 3 - j; k++) addBox(b, -0.6 + k * 0.6, 3.4, 0.08, 0.32, 1.2, 0.02, SEMANTIC.kerbRed, 0);
+      add(instanced(b.build(), mat, list, `brake-boards-${3 - j}`));
+      count += list.length;
+    });
+  }
+
+  // city billboards: big glowing panels on poles
+  if (n('billboards')) {
+    const list = [];
+    for (let i = 0; i < n('billboards'); i++) {
+      const s = (L * (i + rng.range(0.15, 0.85))) / n('billboards');
+      if (blocked(s)) continue;
+      const side = rng.sign();
+      const off = side * (model.wallOffset(s) + 9);
+      model.pointAt(s, off, pt);
+      const ground = model.heightAt(s, side * model.wallOffset(s));
+      list.push({ x: pt.x, y: ground + rng.range(9, 13), z: pt.z, ground, rot: Math.atan2(pt.tx, pt.tz) + Math.PI / 2 + rng.range(-0.3, 0.3), sx: rng.range(10, 16), sy: rng.range(4, 6), sz: 0.4 });
+    }
+    add(instanced(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: UI.chalk }), list, 'billboards', { colors: theme.neon || [theme.accent] }));
+    const poles = list.map((it) => ({ x: it.x, y: it.ground, z: it.z, rot: it.rot, sx: 0.5, sy: it.y - it.ground - it.sy / 2, sz: 0.5 }));
+    add(instanced(kitBuilding({ props: SEMANTIC.carbon }), mat, poles, 'billboard-poles'));
+    for (const it of list) box(it.x, it.ground, it.z, it.rot, -it.sx / 2, it.sx / 2, -0.4, 0.4, it.y - it.ground + it.sy / 2);
     count += list.length;
   }
   track.group.add(group);

@@ -316,7 +316,7 @@ async function main() {
         out.boost = race.player.vehicle.events.boost > 0;
         // 10. track limits penalty (timed modes): sit on the grass > 1.6 s
         const pen0 = race.player.penalty;
-        placeAt(L * 0.2, m.halfWidthAt(L * 0.2) + 5, race.model.heading(L * 0.2));
+        placeAt(L * 0.05, m.halfWidthAt(L * 0.05) + 5, race.model.heading(L * 0.05));
         race.player.vehicle.u = 12;
         drive(120 * 2.2, { throttle: 0.3 });
         out.penalty = race.player.penalty - pen0;
@@ -539,7 +539,7 @@ async function main() {
           await page.evaluate(() => window.__apex.game.quitToMenu());
           await page.clock.runFor(48);
         }
-        check('all 12 campaign levels load', loaded.length === 12 && loaded.every((l) => l.ok), loaded.filter((l) => !l.ok).map((l) => l.id).join(', ') || '12/12');
+        check(`all ${levels.length} campaign levels load`, loaded.length === levels.length && loaded.every((l) => l.ok), loaded.filter((l) => !l.ok).map((l) => l.id).join(', ') || `${loaded.length}/${levels.length}`);
         check(
           'levels carry their rules (GP vs AI, time attack, drift targets)',
           loaded.every((l) => (l.mode === 'grandprix' ? l.opponents >= 5 && l.target === 'position' : l.opponents === 0 && (l.mode === 'timeattack' ? l.target === 'lap' : l.target === 'drift'))),
@@ -633,7 +633,7 @@ async function main() {
         await page.keyboard.press('Enter');
         await page.clock.runFor(100);
         const st2 = await page.evaluate(() => window.__apex.getState());
-        check('keyboard menu flow: arrows move focus, Enter selects (main → mode → Grand Prix → circuit)', /Garage|Quick|Settings|Controls/i.test(focused || '') && st1.screen === 'track' && st1.mode === 'grandprix' && st2.screen === 'setup', `${(focused || '').trim()} → ${st1.screen}/${st1.mode} → ${st2.screen}`);
+        check('keyboard menu flow: arrows move focus, Enter selects (main → mode → Grand Prix → circuit)', /Garage|Quick|Settings|Controls|Multiplayer/i.test(focused || '') && st1.screen === 'track' && st1.mode === 'grandprix' && st2.screen === 'setup', `${(focused || '').trim()} → ${st1.screen}/${st1.mode} → ${st2.screen}`);
         await page.keyboard.press('Enter');
         const raced = await waitPhase(page, 'countdown', 3000);
         check('Enter on setup starts the race', raced);
@@ -959,7 +959,7 @@ async function main() {
       const base = await snap();
       const seq = [];
       for (let k = 0; k < 10; k++) {
-        await cycle(CIRCUIT_ORDER[k % 4]);
+        await cycle(CIRCUIT_ORDER[k % CIRCUIT_ORDER.length]);
         seq.push(await snap());
       }
       const last = seq[seq.length - 1];
@@ -997,6 +997,121 @@ async function main() {
       check('adaptive quality steps down under sustained slow frames (pixel ratio, then preset + shadows)', q1.pixelRatio < q0.pixelRatio && q2.quality === 'low' && q2.shadows === false, `${q0.quality}@${q0.pixelRatio} → ${q1.quality}@${q1.pixelRatio} → ${q2.quality}@${q2.pixelRatio}, shadows ${q2.shadows}`);
       check('memory: console clean', problems.length === 0, formatProblems(problems));
       await context.close();
+    }
+
+    // ---------------------------------------------------------------- NFS controls + multiplayer
+    if (want('multiplayer')) {
+      // --- nitro + speedbreaker in a real race (single player) ---
+      {
+        const { page, context, problems } = await openGame(browser, server);
+        await page.evaluate(() => window.__apex.startRace({ circuitId: 'speed', mode: 'practice', laps: 0, opponents: 0 }));
+        await waitPhase(page, 'countdown', 3000);
+        await waitFor(page, () => window.__apex.getCar().raceState === 'running', null, 800);
+        const before = await page.evaluate(() => window.__apex.game.race.player.vehicle.nitro);
+        await page.evaluate(() => window.__apex.setInput({ throttle: 1, boost: true }));
+        await page.clock.runFor(16 * 90);
+        const burn = await page.evaluate(() => ({ nitro: window.__apex.game.race.player.vehicle.nitro, active: window.__apex.game.race.player.vehicle.nitroActive }));
+        check('nitro: holding boost burns the tank', burn.nitro < before && burn.active, `${before.toFixed(2)} → ${burn.nitro.toFixed(2)}, active ${burn.active}`);
+        await page.evaluate(() => window.__apex.setInput({ throttle: 1 }));
+        await page.keyboard.press('KeyQ');
+        await page.clock.runFor(16 * 60);
+        const sb = await page.evaluate(() => ({ scale: window.__apex.game.race.timeScale, hud: !!document.querySelector('.hud__slowmo') }));
+        await page.keyboard.press('KeyQ');
+        await page.clock.runFor(16 * 60);
+        const sb2 = await page.evaluate(() => window.__apex.game.race.timeScale);
+        check('speedbreaker: Q slows the race, Q again restores it', sb.scale < 0.6 && sb2 === 1, `timeScale ${sb.scale.toFixed(2)} → ${sb2}`);
+        await page.evaluate(() => window.__apex.setInput(null));
+        check('NFS controls: console clean', problems.length === 0, formatProblems(problems));
+        await context.close();
+      }
+
+      // --- split-screen: 3 local players, independent input, one camera each ---
+      {
+        const { page, context, problems } = await openGame(browser, server);
+        await page.evaluate(() =>
+          window.__apex.startRace({
+            circuitId: 'night',
+            mode: 'grandprix',
+            laps: 1,
+            opponents: 2,
+            humans: [
+              { name: 'P1', carId: 'falcon', device: 'kbA' },
+              { name: 'P2', carId: 'viper', device: 'kbB' },
+              { name: 'P3', carId: 'comet', device: 'pad0' },
+            ],
+          }),
+        );
+        await waitPhase(page, 'countdown', 3000);
+        await waitFor(page, () => window.__apex.game.race.manager.canDrive, null, 800);
+        await page.keyboard.down('KeyW');
+        await page.keyboard.down('ArrowUp');
+        await page.clock.runFor(16 * 150);
+        const sp = await page.evaluate(() => {
+          const r = window.__apex.game.race;
+          return { views: r.views.length, speeds: r.racers.filter((x) => x.isHuman).map((x) => x.vehicle.speed), huds: document.querySelectorAll('.hud--split').length, calls: window.__apex.info().calls };
+        });
+        await shot(page, '57-split-screen');
+        sp.calls = await page.evaluate(() => window.__apex.info().calls);
+        await page.keyboard.up('KeyW');
+        await page.keyboard.up('ArrowUp');
+        check('split-screen: 3 players get 3 views and 3 HUDs', sp.views === 3 && sp.huds === 3, JSON.stringify({ views: sp.views, huds: sp.huds }));
+        check('split-screen: each keyboard drives only its own car', sp.speeds[0] > 8 && sp.speeds[1] > 8 && sp.speeds[2] < 1, sp.speeds.map((v) => v.toFixed(1)).join(' / ') + ' m/s');
+        check('split-screen: draw calls stay in budget (3 views, shadows off)', sp.calls < 260, `${sp.calls} calls`);
+        check('split-screen: console clean', problems.length === 0, formatProblems(problems));
+        await context.close();
+      }
+
+      // --- online: host + 2 guests over BroadcastChannel (same browser) ---
+      {
+        const context = await browser.newContext({ viewport: { width: 960, height: 540 }, deviceScaleFactor: 1 });
+        await context.route(/fonts\.(googleapis|gstatic)\.com/, (route) => route.fulfill({ status: 200, contentType: route.request().url().includes('googleapis') ? 'text/css' : 'font/woff2', body: '' }));
+        const problems = [];
+        const open = async () => {
+          const p = await context.newPage();
+          p.on('console', (m) => (m.type() === 'error' || m.type() === 'warning') && problems.push({ type: m.type(), text: m.text() }));
+          p.on('pageerror', (e) => problems.push({ type: 'pageerror', text: String(e) }));
+          await p.goto(`${server.url}?debug`, { waitUntil: 'load' });
+          await p.waitForFunction(() => window.__apex && window.__apex.ready() === 'menu', null, { timeout: 30000 });
+          return p;
+        };
+        const host = await open();
+        const g1 = await open();
+        const g2 = await open();
+        const code = await host.evaluate(() => window.__apex.netCreate('local', 'Host'));
+        await g1.evaluate((c) => window.__apex.netJoin('local', c, 'Guest A'), code);
+        await g2.evaluate((c) => window.__apex.netJoin('local', c, 'Guest B'), code);
+        await host.waitForFunction(() => window.__apex.netInfo().players.length === 3, null, { timeout: 10000 }).catch(() => {});
+        const lobby = await host.evaluate(() => window.__apex.netInfo());
+        check('online: room code + 2 guests join the lobby', /^[A-Z0-9]{4,6}$/.test(code) && lobby.players.length === 3, `${code}: ${lobby.players.join(', ')}`);
+        const wrong = await g2.evaluate(async () => {
+          try {
+            await window.__apex.netJoin('local', 'ZZZZ', 'Lost');
+            return 'joined';
+          } catch (e) {
+            return String(e.message || e);
+          }
+        });
+        check('online: a wrong room code fails with a readable message', /not found/i.test(wrong), wrong);
+        await host.evaluate(() => {
+          window.__apex.netSettings({ circuitId: 'beginner', laps: 1, ai: 1 });
+          window.__apex.netStart();
+        });
+        for (const p of [host, g1]) await p.waitForFunction(() => window.__apex.ready() === 'racing', null, { timeout: 40000 }).catch(() => {});
+        const where = () => {
+          const r = window.__apex.game.race;
+          return r ? r.racers.map((x) => ({ remote: !!x.isRemote, x: x.vehicle.x, z: x.vehicle.z })) : [];
+        };
+        const at0 = [await host.evaluate(where), await g1.evaluate(where)];
+        for (const p of [host, g1]) await p.evaluate(() => window.__apex.setInput({ throttle: 1 }));
+        await host.waitForTimeout(6000);
+        const at1 = [await host.evaluate(where), await g1.evaluate(where)];
+        const seen = at1.map((list, k) => ({ racers: list.length, remote: list.filter((c) => c.remote).length, moved: list.map((c, i) => (at0[k][i] ? Math.round(Math.hypot(c.x - at0[k][i].x, c.z - at0[k][i].z)) : 0)).filter((d, i) => list[i].remote) }));
+        await shot(g1, '58-online-guest', { render: false });
+        check('online: everyone sees all players + host AI on track', seen.every((s) => s.racers === 4 && s.remote >= 2), JSON.stringify(seen));
+        check('online: remote cars move (state sync)', seen.every((s) => s.moved.some((d) => d > 20)), JSON.stringify(seen.map((s) => s.moved)));
+        check('online: console clean', problems.length === 0, formatProblems(problems));
+        await context.close();
+      }
     }
 
     // ---------------------------------------------------------------- debug view (?debugview)

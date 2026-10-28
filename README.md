@@ -1,9 +1,9 @@
 # APEX-GP-CAR-game-
 
-**APEX GP** is a low-poly 3D formula racing and drift game for the browser: 6 original cars, 4 circuits, 12 campaign levels, 7 AI opponents per race, saved progress. It is built with vanilla JavaScript and Three.js, and every car, track and prop is generated in code, so there are no model files to load.
+**APEX GP** is a low-poly 3D formula racing and drift game for the browser: 6 original cars, 5 circuits, 15 campaign levels, 7 AI opponents per race, saved progress. Need for Speed style arcade drifting with nitro and Speedbreaker, and multiplayer for up to 6 players (split-screen on one computer, or online with a room code). It is built with vanilla JavaScript and Three.js, and every car, track and prop is generated in code, so there are no model files to load.
 
 - Desktop Chrome / Edge / Firefox with WebGL. Touch phones and tablets are a secondary target, with on-screen controls.
-- 60 FPS at 1920×1080 on an Intel UHD integrated GPU, 117 draw calls max with a full grid (see [Performance](#performance)).
+- 60 FPS at 1920×1080 on an Intel UHD integrated GPU, 120 draw calls max with a full grid (see [Performance](#performance)).
 - Every phase was gated by an automated, deterministic test run (`npm run verify`). See [Testing](#testing).
 
 ## Quick start
@@ -35,7 +35,8 @@ URL flags: `?styleguide` (every token and component), `?debug` (test hook `windo
 | Brake / reverse | S / ↓ | LT |
 | Steer | A D / ← → | Left stick (dead zone + smoothing) |
 | Handbrake / drift | Space | A |
-| Drift boost | Shift | X / RB |
+| Nitro (hold) | Shift / N | X / RB |
+| Speedbreaker (slow motion, single player) | Q | LB |
 | Camera (chase → close → cockpit → TV) | C | B |
 | Reset to track (hold 1 s: restart) | R / Backspace | Y |
 | Pause | Esc / P | Start |
@@ -44,9 +45,26 @@ URL flags: `?styleguide` (every token and component), `?debug` (test hook `windo
 
 Menus: arrow keys move focus, **Enter** runs the focused button or the screen's main action (Drive, Start, Race again), Esc goes back. Gamepad: d-pad or stick, A to confirm, B to go back. Keyboard keys can be rebound in Settings. On touch screens the race shows steering, gas, brake, drift, boost and pause buttons.
 
-### How to drift
+### How to drift (Arcade handling, the default)
 
-Turn in and tap the handbrake (or brake hard on turn-in) to break the rear loose. Keep the throttle on to hold the slide. Steering into the slide widens the angle, counter-steering straightens it, and lifting ends it. Points score per second × angle × speed. A combo multiplier grows while the drift lasts and the points bank when you straighten up. Hitting a wall or leaving the track loses the points you haven't banked yet. A long drift fills the boost meter, which fires when you straighten up, or press Shift to fire it early. Drift zones (green posts and dashed lines) double the score.
+The default **Arcade** handling is modelled on Need for Speed: Most Wanted. Turn in and tap the handbrake, or tap the brake as you turn in, and the car steps out into a held slide. Keep the throttle on and it holds a steady angle without spinning. Steer into the corner to tighten the line, let go of the steering or counter-steer to straighten, and lift off to end it. The car keeps most of its speed through the slide.
+
+Points score per second × angle × speed. A combo multiplier grows while the drift lasts and the points bank when you straighten up. Hitting a wall or leaving the track loses the points you haven't banked yet. Drift zones (green posts and dashed lines) double the score.
+
+**Sim** handling (Settings → Handling) keeps the original, more realistic tyre model.
+
+### Nitro and Speedbreaker
+
+- **Nitro:** hold Shift (or N) to burn the tank for extra acceleration and top speed. It refills from drifting, driving flat out, slipstreaming, near misses and tokens.
+- **Speedbreaker:** press Q to slow the whole race down, with extra grip, while the green meter lasts. Press Q again to cancel. It refills slowly while you drive. Single player only.
+
+## Multiplayer
+
+Open **Multiplayer** from the main menu.
+
+- **Split-screen (2–6 players on one computer):** each player picks a car and a controller. Player 1 uses WASD (Space drift, Left Shift nitro, C camera, R reset). Player 2 uses the arrow keys (Right Ctrl / Numpad 0 drift, Right Shift / Enter nitro, / camera, . reset). Everyone else uses a gamepad. Choose a circuit, Race or Drift battle, laps and AI cars.
+- **Online (2–6 players):** enter your name, choose **Internet**, and press **Create room**. Share the room code; friends press **Join** and type it in. The host picks the circuit, laps and AI, then presses Start. Players connect peer-to-peer through the free PeerJS broker, and the host relays positions. **This browser** mode connects tabs in the same browser and is meant for testing.
+- Every car and circuit is open in multiplayer. Online, Speedbreaker is off and pause only opens the menu.
 
 ## Features
 
@@ -55,9 +73,11 @@ Turn in and tap the handbrake (or brake hard on turn-in) to break the rear loose
   - Beginner GP / Meadow Park: wide, gentle, daytime
   - Street GP / Neon Harbour: narrow, square corners, dusk city, crossing truck
   - Speed GP / Salt Flat Speedway: long straights, banked sweepers, grandstands
-  - Technical GP / Alpine Ring: corner sequences, elevation, banking, sweeping gate
+  - Technical GP / Alpine Ring: corner sequences, a 12 m crest, banking, sweeping gate
+  - Night City GP / Midnight Boulevard: an NFS-style night city with a lit tunnel, an overpass, neon, billboards and banked boulevards (unlocks at 23★)
+  - Trackside detail: red/white painted barriers in corners, catch fences, pit buildings, braking boards, banners and clouds
 - **Obstacles and interactives:** cones (scatter, small slowdown, +0.5 s in timed modes), tyre stacks (soft bounce), concrete blocks (hard stop and sparks), oil (very low grip), sand and grass (drag), moving gate, rolling barrel, crossing truck, boost pads, drift zones, slipstream and tokens. Hazards are amber and black, boosts are blue and green, kerbs are red and white.
-- **Modes:** Campaign (12 levels: Grand Prix, Time Attack and Drift Challenge on each circuit), Grand Prix (3–7 AI, Easy / Medium / Hard, 1–5 laps), Time Trial (with a ghost of your best flying lap), Drift Challenge, Practice.
+- **Modes:** Campaign (15 levels: Grand Prix, Time Attack and Drift Challenge on each circuit), Grand Prix (3–7 AI, Easy / Medium / Hard, 1–5 laps), Time Trial (with a ghost of your best flying lap), Drift Challenge, Practice.
 - **Race system:** 5-light start, 16 ordered checkpoints plus sector splits (reversing or skipping can't count a lap), wrong-way warning, lap / last / best times, 3 sectors, live delta against your saved personal best, track limits (+1 s), auto-recovery after 3 s stuck, instant restart, results table.
 - **AI:** follows a racing line computed for each circuit with a speed profile, look-ahead steering, personal lane offsets, overtaking, hazard avoidance and mild rubber-banding. It waits for the crossing truck, and its anti-spin assist means it can never spin out.
 - **Cameras:** chase (fixed distance behind the car, sideways lag and heading lag, drift swing, wider field of view at speed), close chase, cockpit, and auto-switching TV. The camera is held inside the barriers and above the road.
@@ -71,7 +91,7 @@ Turn in and tap the handbrake (or brake hard on turn-in) to break the rear loose
 index.html → src/main.js → core/Game.js (renderer, single rAF Loop, GameStore, scenes, UI)
 core/      Loop (120 Hz fixed step + interpolation), GameState (phase store with legal transitions),
            Palette (all colours), Quality, Random (seeded)
-cars/      VehiclePhysics (single-track model + drift assist, pure JS), PhysicsConfig, CarData,
+cars/      VehiclePhysics (single-track model, Arcade drift state, nitro, pure JS), PhysicsConfig, CarData,
            DriftSystem (scoring), CarFactory (procedural mesh), Sizes
 tracks/    TrackData (data contract), TrackModel (spline, profiles, projection, pure JS),
            TrackFactory (road/kerbs/runoff/walls/terrain/start), PropFactory (instanced scenery),
@@ -82,6 +102,8 @@ ai/        OpponentAI          camera/  ChaseCamera, CameraRig       fx/  Partic
 scenes/    RaceScene, MenuScene, GarageScene, DebugView, SceneKit
 ui/        components (Button, Badge, Panel, Stat, StatBar, StarRating, HazardBand, KeyHint, Toast,
            Cards, ConfirmDialog), MenuUI, RaceHUD, ResultsUI, MiniMap, Styleguide, ErrorScreen
+net/       Transport (PeerJS + BroadcastChannel), NetSession (lobby, start, 15 Hz state relay)
+controls/  InputManager (bindings, split-screen schemes, up to 4 gamepads)
 audio/     AudioManager        storage/  SaveManager        styles/  tokens/* + components/hud/menu/screens
 scripts/   verify.mjs, verify-autopilot.js, physics-sanity.mjs, perf.mjs, devServer.mjs, pageSetup.mjs
 ```
@@ -105,7 +127,9 @@ All vehicle constants are in `src/cars/PhysicsConfig.js`. The node script `node 
 | Wider / narrower held drifts | the `target` formula in `VehiclePhysics.step` (drift assist) and `driftAngleMul` |
 | Stronger / weaker drift assist | `assist.easy / medium / hard` (`hold`, `maxAngle`, `spin`) |
 | Drift keeps more speed | `driftThrottleThrust`, `driftRearGrip` |
-| Faster boost / longer boost | `boostAccel`, `driftBoostDuration`, `padBoostAccel` |
+| Arcade drift angle / hold / exit | `arcadeAngle`, `arcadeAngleSteer`, `arcadeExitDelay`, `arcadeScrub`, `arcadeDrive` |
+| Nitro power, burn and refill | `nitroAccel`, `nitroTopSpeedBonus`, `nitroBurn`, `nitroDriftFill`, `nitroSpeedFill` |
+| Speedbreaker strength and length | `speedbreakScale`, `speedbreakDrain`, `speedbreakFill` |
 | Drift score pace | `DRIFT_SCORE` in `src/cars/DriftSystem.js` |
 | AI pace by difficulty | `SKILL` in `src/ai/OpponentAI.js` |
 | Campaign targets | `levelTarget()` multipliers in `src/race/Campaign.js` |
@@ -122,14 +146,16 @@ The run fails on any console error or warning, the camera inside geometry, the c
 
 | Preset | Circuit | Frame cost avg / p95 (CPU, ms) | FPS | Draw calls (max) | Triangles (max) |
 |---|---|---|---|---|---|
-| High | Beginner | 0.72 / 1.00 | 60 | 113 | 82k |
-| High | Street | 0.80 / 1.00 | 60 | 117 | 93k |
-| High | Speed | 0.71 / 0.90 | 60 | 112 | 114k |
-| High | Technical | 0.72 / 0.90 | 60 | 115 | 92k |
-| Low | Beginner | 0.59 / 0.80 | 60 | 70 | 71k |
-| Low | Street | 0.68 / 0.90 | 60 | 76 | 73k |
-| Low | Speed | 0.63 / 0.90 | 60 | 69 | 98k |
-| Low | Technical | 0.60 / 0.80 | 60 | 71 | 78k |
+| High | Beginner | 3.11 / 4.10 | 60 | 118 | 93k |
+| High | Street | 3.62 / 4.90 | 60 | 119 | 100k |
+| High | Speed | 3.18 / 4.20 | 60 | 117 | 136k |
+| High | Technical | 3.17 / 4.20 | 60 | 120 | 108k |
+| High | Night City | 3.26 / 4.60 | 60 | 119 | 142k |
+| Low | Beginner | 2.20 / 3.10 | 60 | 74 | 77k |
+| Low | Street | 0.63 / 0.80 | 60 | 75 | 78k |
+| Low | Speed | 0.65 / 0.90 | 60 | 74 | 120k |
+| Low | Technical | 0.65 / 0.90 | 60 | 76 | 94k |
+| Low | Night City | 2.03 / 3.20 | 60 | 75 | 114k |
 
 Budget: fewer than 150 draw calls and 300k triangles in a race. Entering and leaving a race 10× leaves `renderer.info.memory` flat with exactly one rAF loop (checked by `verify`).
 
@@ -150,6 +176,8 @@ npx vercel --prod
 - Driving feel was tuned with numeric physics checks and the scripted autopilot. Nobody has played it by hand on a physical keyboard, wheel or gamepad during development, so expect to fine-tune `PhysicsConfig.js` to taste.
 - The audio graph is verified (the context starts after a gesture, suspends on pause, and engine nodes are created and disconnected), but the mix has not been listened to.
 - Gamepad and touch are verified with a faked Gamepad API and Playwright touch emulation, not real hardware. Gamepad buttons can't be rebound, only keys.
+- Online play is tested with tabs in one browser (BroadcastChannel). The Internet mode uses the public PeerJS broker; strict firewalls or symmetric NATs can block a direct connection, and there is no TURN relay.
+- Split-screen with 4 or more players is heavy on integrated GPUs; shadows switch off automatically.
 - Only Chromium was tested automatically. Firefox and Safari were not run.
 - Frame cost in the perf table is CPU time inside the game frame; GPU time is not measured separately. FPS is capped at 60 by vsync.
 - The AI drives clean lines (no stylised slides). Seven AI share five car models, so models repeat on the grid.

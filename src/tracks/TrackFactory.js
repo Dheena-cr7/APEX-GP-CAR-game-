@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { TrackModel } from './TrackModel.js';
 import { MeshBuilder, shadeHex, mixHex } from './MeshBuilder.js';
-import { buildProps } from './PropFactory.js';
+import { addBox, buildProps } from './PropFactory.js';
 import { THEMES, SEMANTIC, css } from '../core/Palette.js';
 import { createRng } from '../core/Random.js';
 import { KERB, WALL } from '../cars/Sizes.js';
@@ -106,6 +106,11 @@ export function* buildTrackSteps(def, { quality, propDensity = 1 } = {}) {
 
   yield { progress: 0.7, label: 'Start line' };
   buildStartArea(track, model, theme);
+
+  if ((def.tunnels && def.tunnels.length) || (def.overpasses && def.overpasses.length)) {
+    yield { progress: 0.76, label: 'Tunnel and bridges' };
+    buildStructures(track, model, def, theme);
+  }
 
   yield { progress: 0.8, label: 'Scenery' };
   track.propInfo = buildProps(track, model, def, theme, rng, propDensity * (quality ? quality.propDensity : 1));
@@ -257,7 +262,9 @@ function buildWalls(model, theme) {
       const w0 = side * (model.width[i0] / 2 + model.runoff);
       const w1 = side * (model.width[i1] / 2 + model.runoff);
       const stripe = Math.floor(s0 / 6) % 2 === 0;
-      const face = stripe ? theme.wall : shadeHex(theme.wall, -0.08);
+      // corners: red / white painted barrier blocks; straights: plain concrete
+      const corner = side > 0 ? model.kerbR[i0] : model.kerbL[i0];
+      const face = corner ? (Math.floor(s0 / 4) % 2 ? SEMANTIC.kerbRed : SEMANTIC.kerbWhite) : stripe ? theme.wall : shadeHex(theme.wall, -0.08);
       // inner face: base band + upper band
       const bands = [
         [0, 0.28, base],
@@ -520,4 +527,105 @@ function buildStartArea(track, model, theme) {
     group.add(banner);
   }
   track.group.add(group);
+}
+
+// ---------------------------------------------------------------- tunnels / overpasses
+
+const TUNNEL_H = 7.2;
+
+function buildStructures(track, model, def, theme) {
+  const b = new MeshBuilder();
+  const lamps = new MeshBuilder();
+  const p = { x: 0, y: 0, z: 0, tx: 0, tz: 1 };
+  const wallCol = shadeHex(theme.wall, 0.05);
+  const strip = theme.neon ? theme.neon[1] : theme.accent;
+  const roofCol = shadeHex(theme.wall, -0.45);
+  const boxes = track.propBoxes || (track.propBoxes = []);
+  for (const [s0, s1] of model.tunnels) {
+    const len = model.deltaS(s0, s1) > 0 ? model.deltaS(s0, s1) : model.length - s0 + s1;
+    const rows = Math.max(2, Math.ceil(len / 2));
+    for (let k = 0; k < rows; k++) {
+      const sa = model.wrapS(s0 + (len * k) / rows);
+      const sb = model.wrapS(s0 + (len * (k + 1)) / rows);
+      for (const side of [-1, 1]) {
+        // tall inner wall from the barrier top up to the roof
+        const wa = side * model.wallOffset(sa);
+        const wb = side * model.wallOffset(sb);
+        model.pointAt(sa, wa, p);
+        const ya = model.heightAt(sa, wa);
+        const a0 = b.v(p.x, ya + WALL.height, p.z, wallCol);
+        const a1 = b.v(p.x, ya + TUNNEL_H, p.z, wallCol);
+        model.pointAt(sb, wb, p);
+        const yb = model.heightAt(sb, wb);
+        const b1 = b.v(p.x, yb + TUNNEL_H, p.z, wallCol);
+        const b0 = b.v(p.x, yb + WALL.height, p.z, wallCol);
+        b.quad(a0, a1, b1, b0);
+        // glowing guide strip along the wall
+        for (const [y0, y1] of [[2.3, 2.55]]) {
+          const ws = side * (model.wallOffset(sa) - 0.04);
+          const we = side * (model.wallOffset(sb) - 0.04);
+          model.pointAt(sa, ws, p);
+          const l0 = lamps.v(p.x, ya + y0, p.z, strip);
+          const l1 = lamps.v(p.x, ya + y1, p.z, strip);
+          model.pointAt(sb, we, p);
+          lamps.quad(l0, l1, lamps.v(p.x, yb + y1, p.z, strip), lamps.v(p.x, yb + y0, p.z, strip));
+        }
+      }
+      // roof (underside + top)
+      for (const [dy, col] of [[0, roofCol], [0.7, shadeHex(theme.ground, -0.1)]]) {
+        const ta = model.wallOffset(sa) + 1.4;
+        const tb = model.wallOffset(sb) + 1.4;
+        model.pointAt(sa, -ta, p);
+        const c0 = b.v(p.x, model.heightAt(sa, 0) + TUNNEL_H + dy, p.z, col);
+        model.pointAt(sa, ta, p);
+        const c1 = b.v(p.x, model.heightAt(sa, 0) + TUNNEL_H + dy, p.z, col);
+        model.pointAt(sb, tb, p);
+        const c2 = b.v(p.x, model.heightAt(sb, 0) + TUNNEL_H + dy, p.z, col);
+        model.pointAt(sb, -tb, p);
+        const c3 = b.v(p.x, model.heightAt(sb, 0) + TUNNEL_H + dy, p.z, col);
+        b.quad(c0, c1, c2, c3);
+      }
+      // ceiling light strip every other row
+      if (k % 3 === 0) {
+        const sm = model.wrapS(s0 + (len * (k + 0.5)) / rows);
+        model.pointAt(sm, 0, p);
+        addBox(lamps, p.x, model.heightAt(sm, 0) + TUNNEL_H - 0.1, p.z, 3.2, 0.12, 1.2, theme.night ? SEMANTIC.sparks : SEMANTIC.gridLine, Math.atan2(p.tx, p.tz));
+      }
+    }
+    // portals
+    for (const sp of [s0, s1]) {
+      model.pointAt(sp, 0, p);
+      const span = (model.wallOffset(sp) + 1.6) * 2;
+      addBox(b, p.x, model.heightAt(sp, 0) + TUNNEL_H + 0.9, p.z, span, 1.8, 1.2, theme.accent, Math.atan2(p.tx, p.tz));
+    }
+  }
+  for (const u of def.overpasses || []) {
+    const s0 = model.wrapS(u * model.length);
+    model.pointAt(s0, 0, p);
+    const hd = Math.atan2(p.tx, p.tz);
+    const y0 = model.heightAt(s0, 0);
+    const half = model.wallOffset(s0) + 16;
+    addBox(b, p.x, y0 + 9.6, p.z, half * 2, 1.2, 9, shadeHex(theme.wall, 0.05), hd);
+    addBox(b, p.x, y0 + 10.6, p.z, half * 2, 0.9, 0.4, theme.accent, hd);
+    for (const side of [-1, 1]) {
+      const t = side * (model.wallOffset(s0) + 6);
+      model.pointAt(s0, t, p);
+      const yy = model.heightAt(s0, side * model.wallOffset(s0)) - 0.4;
+      addBox(b, p.x, yy + 4.6, p.z, 1.6, 9.2, 4, shadeHex(theme.wall, -0.15), hd);
+      boxes.push({ x: p.x, z: p.z, rot: hd, x0: -0.8, x1: 0.8, z0: -2, z1: 2, minY: yy, maxY: yy + 9.2 });
+    }
+    model.pointAt(s0, 0, p);
+    boxes.push({ x: p.x, z: p.z, rot: hd, x0: -half, x1: half, z0: -4.5, z1: 4.5, minY: y0 + 9, maxY: y0 + 11.2 });
+  }
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, side: THREE.DoubleSide });
+  const mesh = new THREE.Mesh(b.build(), mat);
+  mesh.name = 'structures';
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  track.group.add(mesh);
+  if (lamps.count) {
+    const lm = new THREE.Mesh(lamps.build(), new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+    lm.name = 'tunnel-lights';
+    track.group.add(lm);
+  }
 }
