@@ -10,6 +10,7 @@ import { PeerTransport, LocalTransport, makeRoomCode } from './Transport.js';
 export const MAX_PLAYERS = 6;
 export const NET_RATE = 15; // state packets per second
 const PROTOCOL = 1;
+const STALE_MS = 3000;
 
 export class NetSession {
   /** kind: 'peer' (internet) or 'local' (same browser, tabs). */
@@ -47,8 +48,18 @@ export class NetSession {
 
   // ---------------------------------------------------------------- lobby
 
-  async create(code = makeRoomCode()) {
-    await this.transport.host(code);
+  async create(code) {
+    // a random code can (rarely) be taken by another room: try a few
+    for (let k = 0; ; k++) {
+      const c = code || makeRoomCode();
+      try {
+        await this.transport.host(c);
+        code = c;
+        break;
+      } catch (err) {
+        if (code || err.type !== 'unavailable-id' || k >= 3) throw err;
+      }
+    }
     this.isHost = true;
     this.code = code;
     this.slot = 0;
@@ -160,7 +171,10 @@ export class NetSession {
     this.sendAcc = 0;
     if (this.isHost) {
       const all = this._outbox.slice();
-      for (const [id, r] of this.remote) if (!String(id).startsWith('ai')) all.push(r.st);
+      // relay only players heard from recently: a vanished player's last state
+      // must not be re-sent forever (everyone would see a frozen car)
+      const now = performance.now();
+      for (const [id, r] of this.remote) if (!String(id).startsWith('ai') && now - r.at < STALE_MS) all.push(r.st);
       this.transport.broadcast({ t: 'sts', list: all });
     } else this.transport.broadcast({ t: 'st', list: this._outbox });
   }

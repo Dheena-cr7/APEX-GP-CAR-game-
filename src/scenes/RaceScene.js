@@ -27,6 +27,8 @@ import { GhostRecorder, ghostPose, decodeGhost, encodeGhost } from '../race/Ghos
 import { isTouchDevice } from '../controls/InputManager.js';
 import { h } from '../ui/dom.js';
 
+const REMOTE_GONE = 3; // s without packets before a remote car is removed
+
 const FULL_HALF_W = CAR.width / 2;
 const FULL_HALF_L = CAR.length / 2;
 const RESULTS_DELAY = 2.6;
@@ -574,7 +576,11 @@ export class RaceScene {
     const n = r.net;
     if (!n) return;
     const st = n.st;
-    const age = Math.min(0.3, (performance.now() - n.at) / 1000);
+    const rawAge = (performance.now() - n.at) / 1000;
+    // a player who stopped sending (left / lost connection) vanishes instead of
+    // standing on the track as a solid wreck; they reappear if packets resume
+    r.gone = rawAge > REMOTE_GONE;
+    const age = Math.min(0.3, rawAge);
     const sh = Math.sin(st[3]);
     const ch = Math.cos(st[3]);
     const vx = sh * st[4] + ch * st[5];
@@ -786,11 +792,11 @@ export class RaceScene {
     const hit = this._hit;
     for (let i = 0; i < list.length; i++) {
       const ri = list[i];
-      if (ri.ghost > 0) continue;
+      if (ri.ghost > 0 || ri.gone) continue;
       const vi = ri.vehicle;
       for (let j = i + 1; j < list.length; j++) {
         const rj = list[j];
-        if (rj.ghost > 0) continue;
+        if (rj.ghost > 0 || rj.gone) continue;
         if (ri.isRemote && rj.isRemote) continue;
         const vj = rj.vehicle;
         const dx = vj.x - vi.x;
@@ -1148,7 +1154,7 @@ export class RaceScene {
       const dx = r.vehicle.x - cam.x;
       const dz = r.vehicle.z - cam.z;
       const dy = r.vehicle.y + 0.5 - cam.y;
-      r.view.root.visible = dx * dx + dz * dz + dy * dy > 2.6 * 2.6;
+      r.view.root.visible = !r.gone && dx * dx + dz * dz + dy * dy > 2.6 * 2.6;
     }
   }
 

@@ -250,7 +250,7 @@ export function renderOnline(ui) {
           h('label', { className: 'field' }, [h('span', { className: 'field__label', text: 'Name' }), nameInput]),
           h('div', { className: 'field' }, [h('span', { className: 'field__label', text: 'Car' }), h('span', { className: 't-label', text: car.name }), Button({ label: 'Garage', variant: 'ghost', size: 'sm', onClick: () => ui._go('garage', { returnTo: 'select', returnScreen: 'online' }) })]),
           ui._segmented('Connection', ['peer', 'local'], st.kind, (v) => (st.kind = v), (v) => (v === 'peer' ? 'Internet' : 'This browser')),
-          h('p', { className: 't-body', text: 'Internet uses a free peer-to-peer service, so every player must be online. "This browser" links tabs/windows on one computer.' }),
+          h('p', { className: 't-body', text: 'Internet connects every player straight to the host. If a friend cannot join, let the player on home Wi-Fi host (mobile data and office or campus Wi-Fi often block direct links). "This browser" links tabs and windows on one computer.' }),
         ],
       }),
       Panel({

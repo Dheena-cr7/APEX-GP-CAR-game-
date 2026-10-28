@@ -65,6 +65,20 @@ Open **Multiplayer** from the main menu.
 - **Split-screen (2–6 players on one computer):** each player picks a car and a controller. Player 1 uses WASD (Space drift, Left Shift nitro, C camera, R reset). Player 2 uses the arrow keys (Right Ctrl / Numpad 0 drift, Right Shift / Enter nitro, / camera, . reset). Everyone else uses a gamepad. Choose a circuit, Race or Drift battle, laps and AI cars.
 - **Online (2–6 players):** enter your name, choose **Internet**, and press **Create room**. Share the room code; friends press **Join** and type it in. The host picks the circuit, laps and AI, then presses Start. Players connect peer-to-peer through the free PeerJS broker, and the host relays positions. **This browser** mode connects tabs in the same browser and is meant for testing.
 - Every car and circuit is open in multiplayer. Online, Speedbreaker is off and pause only opens the menu.
+- If a player switches tabs or minimises the window, the race keeps running for everyone (at a lower update rate). A player who leaves or loses connection disappears from the track after a few seconds.
+
+### If friends can't connect (TURN relay)
+
+Each friend connects straight to the host's browser. That works on most home Wi-Fi, but mobile data, some broadband (carrier-grade NAT) and many office or campus networks block direct links. When that happens, only some friends can join, and the game says a network is blocking the connection. Quick fixes:
+
+1. Let the player on home Wi-Fi host the room.
+2. Or add a free **TURN relay**, which passes traffic for players whose networks block direct links. PeerJS's old free relays no longer exist, so you need your own:
+   - Create a free account with a TURN provider (for example Metered, ExpressTURN or Cloudflare Realtime) and copy its TURN URLs, username and password.
+   - On GitHub, open the repository → **Settings → Secrets and variables → Actions**.
+     - Under **Variables**, add `TURN_URLS` (comma-separated, e.g. `turn:global.relay.example.com:80,turns:global.relay.example.com:443?transport=tcp`), `TURN_USERNAME` and `TURN_CREDENTIAL`.
+   - Re-run the **Deploy to GitHub Pages** workflow (Actions tab → Run workflow).
+
+   These are variables, not secrets, on purpose: every player's browser needs them, so they are visible in the published game. Use a provider's free tier with a usage cap rather than a paid account without limits. For local builds, set `VITE_TURN_URLS`, `VITE_TURN_USERNAME` and `VITE_TURN_CREDENTIAL` instead.
 
 ## Features
 
@@ -176,7 +190,7 @@ npx vercel --prod
 - Driving feel was tuned with numeric physics checks and the scripted autopilot. Nobody has played it by hand on a physical keyboard, wheel or gamepad during development, so expect to fine-tune `PhysicsConfig.js` to taste.
 - The audio graph is verified (the context starts after a gesture, suspends on pause, and engine nodes are created and disconnected), but the mix has not been listened to.
 - Gamepad and touch are verified with a faked Gamepad API and Playwright touch emulation, not real hardware. Gamepad buttons can't be rebound, only keys.
-- Online play is tested with tabs in one browser (BroadcastChannel). The Internet mode uses the public PeerJS broker; strict firewalls or symmetric NATs can block a direct connection, and there is no TURN relay.
+- Online play is tested automatically with tabs in one browser (BroadcastChannel), and by hand with 6 browsers on one computer through the public PeerJS server. Players on strict networks need a TURN relay (see [If friends can't connect](#if-friends-cant-connect-turn-relay)); none is configured by default.
 - Split-screen with 4 or more players is heavy on integrated GPUs; shadows switch off automatically.
 - Only Chromium was tested automatically. Firefox and Safari were not run.
 - Frame cost in the perf table is CPU time inside the game frame; GPU time is not measured separately. FPS is capped at 60 by vsync.

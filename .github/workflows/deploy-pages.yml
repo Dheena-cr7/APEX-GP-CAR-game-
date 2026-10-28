@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  pages: write
 
 concurrency:
   group: pages
@@ -27,10 +28,22 @@ jobs:
       - run: npm ci
       - run: npm run lint
       # relative asset paths (vite base './') work under /<repo>/
+      # optional TURN relay for online play on strict networks (see README)
       - run: npm run build
+        env:
+          VITE_TURN_URLS: ${{ vars.TURN_URLS }}
+          VITE_TURN_USERNAME: ${{ vars.TURN_USERNAME }}
+          VITE_TURN_CREDENTIAL: ${{ vars.TURN_CREDENTIAL }}
       - run: touch dist/.nojekyll
       - uses: JamesIves/github-pages-deploy-action@v4
         with:
           branch: gh-pages
           folder: dist
           clean: true
+      # a push made with the workflow token does not start a Pages build on its
+      # own, so ask for one explicitly
+      - name: Publish on GitHub Pages
+        continue-on-error: true
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds"
+        env:
+          GH_TOKEN: ${{ github.token }}

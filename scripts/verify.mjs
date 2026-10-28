@@ -1109,6 +1109,33 @@ async function main() {
         await shot(g1, '58-online-guest', { render: false });
         check('online: everyone sees all players + host AI on track', seen.every((s) => s.racers === 4 && s.remote >= 2), JSON.stringify(seen));
         check('online: remote cars move (state sync)', seen.every((s) => s.moved.some((d) => d > 20)), JSON.stringify(seen.map((s) => s.moved)));
+        // the host's tab goes to the background: the race (AI + relay) keeps running
+        const aiAt = () => g1.evaluate(() => {
+          const r = window.__apex.game.race.racers.find((x) => x.netId === 'ai0');
+          return [r.vehicle.x, r.vehicle.z];
+        });
+        await host.evaluate(() => {
+          Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+          document.dispatchEvent(new Event('visibilitychange'));
+        });
+        const ai0 = await aiAt();
+        await host.waitForTimeout(3000);
+        const ai1 = await aiAt();
+        await host.evaluate(() => {
+          Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+          document.dispatchEvent(new Event('visibilitychange'));
+        });
+        const aiMoved = Math.round(Math.hypot(ai1[0] - ai0[0], ai1[1] - ai0[1]));
+        check('online: a hidden host tab keeps the race running (AI still moves for guests)', aiMoved > 30, `AI moved ${aiMoved} m in 3 s with the host hidden`);
+        // a guest leaves: their car disappears for everyone instead of freezing on track
+        const leftSlot = await g2.evaluate(() => window.__apex.game.net.slot);
+        await g2.close();
+        await host.waitForTimeout(7500);
+        const goneFor = await g1.evaluate((s) => {
+          const r = window.__apex.game.race.racers.find((x) => x.netId === s);
+          return { gone: !!(r && r.gone), visible: !!(r && r.view.root.visible), players: window.__apex.netInfo().players.length };
+        }, leftSlot);
+        check('online: a player who leaves vanishes from the track and the lobby', goneFor.gone && !goneFor.visible && goneFor.players === 2, JSON.stringify(goneFor));
         check('online: console clean', problems.length === 0, formatProblems(problems));
         await context.close();
       }

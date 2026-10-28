@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Loop } from './Loop.js';
+import { Loop, FIXED_DT } from './Loop.js';
 import { GameStore } from './GameState.js';
 import { Quality } from './Quality.js';
 import { SaveManager } from '../storage/SaveManager.js';
@@ -47,6 +47,8 @@ export class Game {
     this.debugOverlay = null;
     this.debugView = null;
     this.loop = new Loop({ step: (dt) => this.step(dt), frame: (a, dt, now) => this.frame(a, dt, now) });
+    this._bgTimer = 0;
+    document.addEventListener('visibilitychange', () => this._syncBackground());
     this._onResize = this._onResize.bind(this);
     this._onPhase = this._onPhase.bind(this);
   }
@@ -207,6 +209,7 @@ export class Game {
     if (this.net && this.net !== session) this.closeNet();
     this.net = session;
     this._netOut = [];
+    this._syncBackground();
     session.on('start', (m) => this._netStart(m));
     session.on('go', () => {
       if (this.race) this.race.go();
@@ -225,6 +228,7 @@ export class Game {
     const n = this.net;
     this.net = null;
     if (n) n.close();
+    this._syncBackground();
   }
 
   _netStart(m) {
@@ -255,6 +259,38 @@ export class Game {
     const p = this.store.phase;
     if (p === 'racing' || p === 'countdown' || p === 'paused') this.store.go('menu', { screen: 'main' });
     this.store.go('loading', { raceConfig });
+  }
+
+  /**
+   * Online rooms must keep running while this tab is hidden: the rAF loop
+   * stops, and on the host that would freeze the AI and the relay for every
+   * player (a hidden guest would hold up the start). Browsers throttle hidden
+   * timers to about once a second, so each tick catches up on the missed time.
+   */
+  _syncBackground() {
+    const want = typeof document !== 'undefined' && document.hidden && !!this.net;
+    if (want && !this._bgTimer) {
+      this._bgLast = performance.now();
+      this._bgTimer = setInterval(() => this._backgroundTick(), 100);
+    } else if (!want && this._bgTimer) {
+      clearInterval(this._bgTimer);
+      this._bgTimer = 0;
+    }
+  }
+
+  _backgroundTick() {
+    if (!document.hidden || !this.net) {
+      this._syncBackground();
+      return;
+    }
+    const now = performance.now();
+    const dt = Math.min(2, (now - this._bgLast) / 1000);
+    this._bgLast = now;
+    // finish loading in one go so a hidden player never holds up the start
+    for (let k = 0; k < 64 && this.loader && this.store.phase === 'loading'; k++) this.frame(0, 0);
+    const n = Math.floor(dt / FIXED_DT);
+    for (let i = 0; i < n; i++) this.step(FIXED_DT);
+    this.frame(0, dt);
   }
 
   /** Build a race config from the store selection and start loading. */

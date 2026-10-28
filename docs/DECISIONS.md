@@ -49,3 +49,12 @@ One line per non-obvious choice.
 - Night City GP: asphalt run-off (no gravel in a city), plus a tunnel and an overpass built from track-space data (`tunnels`, `overpasses`). TV cameras are skipped inside the tunnel.
 - The chase camera's clamp projection keeps a hint index. `snap()` now resets it; before, a long jump clamped the camera near the old position.
 
+## Update: online fixes (3+ players over the internet)
+
+- Cause: PeerJS's bundled TURN relays (`eu-0` / `us-0.turn.peerjs.com`) no longer resolve, and neither does the old free OpenRelay host, so only player pairs whose networks allow a direct WebRTC link could connect. ICE now uses several working STUN servers plus an optional TURN relay set at build time (`VITE_TURN_*`, fed from repository variables in the Pages workflow; they are public by design, so they are not stored as secrets). Free TURN providers all need an account, so none is hard-coded.
+- A guest whose link fails now gets a message saying a network blocks direct connections (detected from the ICE state instead of a generic 12 s timeout), rather than "Room not found".
+- The matchmaking server can take 10 s+ to register a room, so its timeout went from 12 s to 20 s; a random room code that is already taken is retried with a new one.
+- A hidden tab stops requestAnimationFrame. Online, the game now keeps stepping on a timer while hidden (catching up the throttled time), so a host in the background no longer freezes the AI and the relay for everyone, and a hidden guest no longer holds up the start.
+- The host relays only states heard in the last 3 s, guests hide a car with no news for 3 s (no collisions), and the host drops a link whose ICE stays disconnected for 6 s, so a player who closes the tab leaves the track and the lobby instead of standing on the racing line.
+- The Pages workflow now asks GitHub to publish after pushing `gh-pages` (a push made with the workflow token does not start a Pages build by itself).
+

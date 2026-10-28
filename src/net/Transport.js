@@ -12,14 +12,28 @@
 // LocalTransport: BroadcastChannel between tabs of the same browser (offline
 // play across windows, and the automated tests).
 
+import { iceServers, turnConfigured } from './iceServers.js';
+
 const ID_PREFIX = 'apexgp-v1-';
-const CONNECT_TIMEOUT = 12000;
+const SERVER_TIMEOUT = 20000; // the free PeerJS server can take 10 s+ to answer
+const CONNECT_TIMEOUT = 15000;
+const DROP_AFTER = 6000;
+const BLOCKED = turnConfigured()
+  ? 'Could not connect to the host. Check both internet connections and try again.'
+  : 'Could not connect to the host: one of your networks blocks direct connections (common on mobile data and office or campus Wi-Fi). Try another network, or let the player on home Wi-Fi host the room.';
 
 class BaseTransport {
   constructor() {
     this.handlers = { message: [], join: [], leave: [], error: [] };
     this.isHost = false;
     this.closed = false;
+    // closing the tab says goodbye, so the others notice at once
+    this._onPageHide = () => this.close();
+    if (typeof window !== 'undefined') window.addEventListener('pagehide', this._onPageHide);
+  }
+
+  _unhook() {
+    if (typeof window !== 'undefined') window.removeEventListener('pagehide', this._onPageHide);
   }
 
   onMessage(fn) {
@@ -59,8 +73,12 @@ export class PeerTransport extends BaseTransport {
   async _peer(id) {
     const { Peer } = await import('peerjs');
     return new Promise((resolve, reject) => {
-      const peer = id ? new Peer(id, { debug: 0 }) : new Peer({ debug: 0 });
-      const timer = setTimeout(() => reject(new Error('Could not reach the matchmaking server (check your internet connection).')), CONNECT_TIMEOUT);
+      const opts = { debug: 0, config: { iceServers: iceServers() } };
+      const peer = id ? new Peer(id, opts) : new Peer(opts);
+      const timer = setTimeout(() => {
+        peer.destroy();
+        reject(new Error('Could not reach the matchmaking server (check your internet connection).'));
+      }, SERVER_TIMEOUT);
       peer.on('open', () => {
         clearTimeout(timer);
         resolve(peer);
@@ -74,8 +92,12 @@ export class PeerTransport extends BaseTransport {
           err.type === 'browser-incompatible' ? 'This browser does not support WebRTC.' :
           String(err.message || err.type || err);
         const e = new Error(msg);
+        e.type = err.type;
         if (this.peer) this._emit('error', e);
-        else reject(e);
+        else {
+          peer.destroy();
+          reject(e);
+        }
       });
     });
   }
@@ -96,6 +118,14 @@ export class PeerTransport extends BaseTransport {
     this.isHost = true;
     this.peer = await this._peer(ID_PREFIX + code);
     this.peer.on('connection', (conn) => {
+      // a closed tab is only noticed when ICE gives up: drop a link that stays
+      // broken for a few seconds so the lobby and the start never wait on it
+      let lost = 0;
+      conn.on('iceStateChanged', (state) => {
+        clearTimeout(lost);
+        if (state === 'failed' || state === 'closed') conn.close();
+        else if (state === 'disconnected') lost = setTimeout(() => conn.close(), DROP_AFTER);
+      });
       conn.on('open', () => {
         this.conns.set(conn.peer, conn);
         this._wire(conn);
@@ -113,7 +143,13 @@ export class PeerTransport extends BaseTransport {
     const hostId = ID_PREFIX + code;
     await new Promise((resolve, reject) => {
       const conn = this.peer.connect(hostId, { reliable: true, serialization: 'json' });
-      const timer = setTimeout(() => reject(new Error('Room not found or the host is unreachable.')), CONNECT_TIMEOUT);
+      const timer = setTimeout(() => reject(new Error(BLOCKED)), CONNECT_TIMEOUT);
+      conn.on('iceStateChanged', (state) => {
+        if (state === 'failed') {
+          clearTimeout(timer);
+          reject(new Error(BLOCKED));
+        }
+      });
       conn.on('open', () => {
         clearTimeout(timer);
         this.conns.set(hostId, conn);
@@ -139,6 +175,7 @@ export class PeerTransport extends BaseTransport {
 
   close() {
     this.closed = true;
+    this._unhook();
     for (const c of this.conns.values()) {
       try {
         c.close();
@@ -228,6 +265,7 @@ export class LocalTransport extends BaseTransport {
   close() {
     if (this.closed) return;
     this.closed = true;
+    this._unhook();
     if (this.channel) {
       const to = this.isHost ? null : this.hostId;
       if (this.isHost) for (const c of this.clients) this.channel.postMessage({ kind: 'bye', to: c, from: this.id });
