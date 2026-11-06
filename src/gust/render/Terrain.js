@@ -234,6 +234,21 @@ export class Terrain {
     }
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0, flatShading: false });
+    // world-space detail noise so the ground never looks like flat paint
+    mat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vWorldPos;')
+        .replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', `#include <common>
+          varying vec3 vWorldPos;
+          float gHash(vec2 p) { return fract(sin(dot(p, vec2(41.3, 289.1))) * 45758.5453); }
+          float gNoise(vec2 p) { vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
+            return mix(mix(gHash(i), gHash(i + vec2(1, 0)), u.x), mix(gHash(i + vec2(0, 1)), gHash(i + vec2(1, 1)), u.x), u.y); }`)
+        .replace('#include <color_fragment>', `#include <color_fragment>
+          float gn = gNoise(vWorldPos.xz * 0.9) * 0.5 + gNoise(vWorldPos.xz * 3.7) * 0.3 + gNoise(vWorldPos.xz * 0.15) * 0.4;
+          diffuseColor.rgb *= 0.82 + gn * 0.3;`);
+    };
     const group = new THREE.Group();
     group.name = 'terrain';
     // tiles share the vertex buffers; each has its own index and bounds

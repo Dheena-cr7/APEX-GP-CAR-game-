@@ -64,7 +64,7 @@ for (const course of COURSES) {
       sim.events.length = 0;
     }
     const t = sim.phase === 'finished' ? sim.finishTime : NaN;
-    console.log(`  crew ${crewN}: ${sim.phase === 'finished' ? 'finished ' + t.toFixed(1) + ' s' : 'DNF at s=' + sim.raft.s.toFixed(0)} · shells ${sim.shellCount}/${sim.shells.length} · impacts ${impacts} (hard ${hard}) · knocked ${knocks} · respawns ${sim.respawns} · top ${maxV.toFixed(1)} m/s · centre past bank ${maxPen.toFixed(2)} m`);
+    console.log(`  crew ${crewN}: ${sim.phase === 'finished' ? 'finished ' + t.toFixed(1) + ' s' : 'DNF at s=' + sim.raft.s.toFixed(0)} · wrecks ${sim.crashes} · checkpoints ${sim.checkpoints.length} · shells ${sim.shellCount}/${sim.shells.length} · impacts ${impacts} (hard ${hard}) · knocked ${knocks} · respawns ${sim.respawns} · top ${maxV.toFixed(1)} m/s · centre past bank ${maxPen.toFixed(2)} m`);
     if (sim.phase !== 'finished') fail(`crew ${crewN} did not finish`);
     if (maxPen > 0.5) fail(`raft centre went ${maxPen.toFixed(2)} m outside the bank`);
   }

@@ -35,7 +35,8 @@ export class Game {
     this.save = new Save();
     const renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, powerPreference: 'high-performance', stencil: false });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    // Neutral tone mapping keeps the cartoon colours bright and saturated
+    renderer.toneMapping = THREE.NeutralToneMapping;
     renderer.toneMappingExposure = 1.0;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -88,6 +89,7 @@ export class Game {
   applyVolumes() {
     const s = this.save.settings;
     this.sound.setVolumes({ master: s.master, music: s.music, sfx: s.sfx });
+    this.sound.silly = s.silly !== false;
   }
 
   resize() {

@@ -15,7 +15,10 @@ export const DECK_HALF = 1.68;
 export const MAST_HALF = 0.5;
 export const CREW_R = 0.3;
 export const COUNTDOWN = 3.2;
-export const RESPAWN_PENALTY = 3;
+export const RESPAWN_PENALTY = 0;
+// touching an obstacle wrecks the raft; everyone respawns at the last checkpoint
+export const WRECK_TIME = 1.6;
+export const SAFE_TIME = 2.2;
 
 const G = 9.81;
 // thrust per sailor shrinks with crew size so total pace stays similar
@@ -203,9 +206,9 @@ export class Sim {
       const w = this.river.pointU(p.s, p.u, { x: 0, z: 0 });
       return { i, s: p.s, x: w.x, z: w.z, got: false };
     });
-    this.checkpoints = course.checkpoints.slice().sort((a, b) => a - b);
     this.finishS = finishS(this.river);
     this.startS = 12;
+    this.checkpoints = this._buildCheckpoints();
     this.crew = crew.map((c, i) => makeCrew(c, i));
     this.events = [];
     this.clock = 0; // world time (hazards, water) since the sim was created
@@ -215,6 +218,9 @@ export class Sim {
     this.cpIndex = 0;
     this.finishTime = 0;
     this.respawns = 0;
+    this.crashes = 0;
+    this.wreck = 0; // > 0 while the raft is in pieces
+    this.invuln = 0; // > 0 just after a respawn: obstacles only bounce
     this.stuck = 0;
     this._circ = [];
     this._pr = { s: 0, t: 0, i: 0 };
@@ -249,9 +255,48 @@ export class Sim {
     return this.crew.find((c) => c.slot === slot);
   }
 
-  _placeRaft(s) {
+  /**
+   * The course's own checkpoints plus extra ones every ~58 m, nudged to spots
+   * with no obstacle nearby, so a wreck never costs much distance.
+   */
+  _buildCheckpoints() {
+    // a respawn spot needs open water: nothing just behind, 14 m clear ahead
+    const clearAt = (s) => this.hazards.every((h) => !h.circles.length || h.s + h.reach < s - 3 || h.s - h.reach > s + 14);
+    const ok = [];
+    for (let s = 20; s < this.finishS - 15; s += 2) if (clearAt(s)) ok.push(s);
+    // greedy: the furthest clear spot within 65 m of the last checkpoint
+    const list = [];
+    let last = this.startS;
+    for (;;) {
+      let pick = -1;
+      for (const s of ok) if (s > last + 28 && s <= last + 65) pick = s;
+      if (pick < 0) pick = ok.find((s) => s > last + 65) ?? -1;
+      if (pick < 0 || pick > this.finishS - 25) break;
+      list.push(pick);
+      last = pick;
+    }
+    return list;
+  }
+
+  /** Where to respawn: just past the last checkpoint, in a clear lane. */
+  _respawnSpot() {
+    const s = (this.cpIndex > 0 ? this.checkpoints[this.cpIndex - 1] : this.startS) + 2;
+    const hw = this.river.at(this.river.hw, s);
+    const circ = [];
+    for (const h of this.hazards) {
+      if (!h.circles.length || Math.abs(h.s - s) > h.reach + 12) continue;
+      h.worldCircles(this.clock, circ);
+    }
+    for (const f of [0, 0.3, -0.3, 0.55, -0.55]) {
+      const p = this.river.point(s, f * hw);
+      if (circ.every((c) => Math.hypot(c.x - p.x, c.z - p.z) > c.r + 4.5)) return { s, t: f * hw };
+    }
+    return { s, t: 0 };
+  }
+
+  _placeRaft(s, t = 0) {
     const r = this.raft;
-    const p = this.river.point(s, 0);
+    const p = this.river.point(s, t);
     r.x = p.x;
     r.z = p.z;
     r.yaw = Math.atan2(p.tz, p.tx);
@@ -273,18 +318,48 @@ export class Sim {
     this.events.push({ type: 'countdown' });
   }
 
-  /** Back to the last checkpoint (+penalty). */
+  /** Back to the last checkpoint (the R key, or the end of a wreck). */
   respawn() {
-    if (this.phase !== 'run') return;
-    const s = this.cpIndex > 0 ? this.checkpoints[this.cpIndex - 1] + 2 : this.startS;
-    this._placeRaft(s);
-    for (const c of this.crew) {
-      if (c.local && c.mode === 'swim') this._rescue(c, false);
-    }
+    if (this.phase !== 'run' || this.wreck > 0) return;
+    this._respawnNow();
+  }
+
+  _respawnNow() {
+    const spot = this._respawnSpot();
+    this._placeRaft(spot.s, spot.t);
+    this.wreck = 0;
+    this.invuln = SAFE_TIME;
+    this.rescueLocalCrew();
     this.raceTime += RESPAWN_PENALTY;
     this.respawns++;
     this.stuck = 0;
     this.events.push({ type: 'respawn' });
+  }
+
+  /** Haul every sailor this peer owns back aboard (they drop onto the deck). */
+  rescueLocalCrew() {
+    for (const c of this.crew) if (c.local && c.mode === 'swim') this._rescue(c, false);
+  }
+
+  /** Throw every sailor this peer owns into the water (a wreck). */
+  flingLocalCrew(nx = 0, nz = 0) {
+    for (const c of this.crew) {
+      if (!c.local || c.mode !== 'deck') continue;
+      c.aboardAt = -9;
+      this._fling(c, nx, nz, 4.5);
+    }
+  }
+
+  _crash(x, z, kind, nx, nz) {
+    const r = this.raft;
+    this.wreck = WRECK_TIME;
+    this.crashes++;
+    // the wreck bounces off and spins, then drifts while it falls apart
+    r.vx = r.vx * -0.25 + nx * 2.5;
+    r.vz = r.vz * -0.25 + nz * 2.5;
+    r.w += (this.rng() - 0.5) * 4;
+    this.flingLocalCrew(nx, nz);
+    this.events.push({ type: 'crash', x, z, kind });
   }
 
   // ------------------------------------------------------------ coordinates
@@ -481,9 +556,11 @@ export class Sim {
   }
 
   _rescue(c, ev) {
+    const spots = [[-1.2, 0], [1.1, 0.9], [1.1, -0.9], [-0.4, 1.25]];
+    const k = this.crew.indexOf(c);
     c.mode = 'deck';
-    c.lx = -1.2;
-    c.lz = 0;
+    c.lx = spots[(k < 0 ? 0 : k) % 4][0];
+    c.lz = spots[(k < 0 ? 0 : k) % 4][1];
     c.vx = c.vz = 0;
     c.air = 1.2;
     c.vy = 2;
@@ -503,6 +580,10 @@ export class Sim {
       if (c.air <= 0) { c.air = 0.01; c.vy = 1.6 + power * 0.25; }
       return;
     }
+    this._fling(c, nx, nz, power);
+  }
+
+  _fling(c, nx, nz, power) {
     const w = this.crewWorld(c);
     const r = this.raft;
     // fling outward from the raft centre, away from the hit
@@ -545,10 +626,22 @@ export class Sim {
     this._separateCrew();
 
     const held = this.phase === 'ready' || this.phase === 'countdown';
+    if (this.invuln > 0) this.invuln = Math.max(0, this.invuln - dt);
     if (held) {
       // moored at the dock: gentle bob only
       r.vx = r.vz = r.w = 0;
       for (const c of this.crew) c.puffSeen = c.puffSeq;
+    } else if (this.wreck > 0) {
+      // the wreck drifts and slows; then everyone is back at the checkpoint
+      const k = Math.exp(-1.5 * dt);
+      r.vx *= k; r.vz *= k; r.w *= k;
+      r.x += r.vx * dt; r.z += r.vz * dt; r.yaw += r.w * dt;
+      for (const c of this.crew) c.puffSeen = c.puffSeq;
+      this.wreck -= dt;
+      if (this.wreck <= 0) {
+        if (this.authority !== false) this._respawnNow();
+        else this.wreck = 0.0001; // online client: wait for the host's respawn
+      }
     } else {
       this._forces(dt);
     }
@@ -558,9 +651,9 @@ export class Sim {
     r.t = pr.t;
     r.hint = pr.i;
     this._vertical(dt);
-    if (!held) {
+    if (!held && this.wreck <= 0) {
       this._collide();
-      this._collide();
+      if (this.wreck <= 0) this._collide();
     }
     this._pickups();
     this._progress(dt);
@@ -747,6 +840,10 @@ export class Sim {
       // normal from the circle toward the raft, in world space
       const nx = -(nlx * cs - nlz * sn), nz = -(nlx * sn + nlz * cs);
       const wpx = r.x + qx * cs - qz * sn, wpz = r.z + qx * sn + qz * cs;
+      if (this.phase === 'run' && this.authority !== false && this.invuln <= 0 && this.crashOn !== false) {
+        this._crash(wpx, wpz, c.h.type, -nx, -nz);
+        return;
+      }
       const e = c.h.type === 'spinner' ? 0.4 : c.h.type === 'log' ? 0.3 : 0.35;
       this._contact(wpx, wpz, -nx, -nz, pen, c.vx, c.vz, e, c.h.type);
     }

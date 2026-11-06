@@ -12,6 +12,39 @@ const rng = mulberry32(4242);
 const P = (geo, hex, j = 0.08) => paint(geo, hex, j, rng);
 
 const MATS = {};
+
+// Cartoon outline: the same mesh drawn slightly inflated, back faces only,
+// in a dark ink colour. Works on smooth geometry (spheres, cylinders).
+const OUTLINE_MAT = new THREE.ShaderMaterial({
+  side: THREE.BackSide,
+  uniforms: { uColor: { value: new THREE.Color(0x1d2433) }, uThick: { value: 0.03 } },
+  vertexShader: `
+    uniform float uThick;
+    void main() {
+      vec3 p = position + normal * uThick;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+    }`,
+  fragmentShader: `
+    uniform vec3 uColor;
+    void main() { gl_FragColor = vec4(uColor, 1.0); }`,
+});
+const OUTLINES = new Map();
+function outlineMat(thick) {
+  if (!OUTLINES.has(thick)) {
+    const m = OUTLINE_MAT.clone();
+    m.uniforms.uThick.value = thick;
+    OUTLINES.set(thick, m);
+  }
+  return OUTLINES.get(thick);
+}
+/** Add an ink outline as a child of `mesh`. */
+export function addOutline(mesh, thick = 0.03) {
+  const o = new THREE.Mesh(mesh.geometry, outlineMat(thick));
+  o.name = 'outline';
+  o.renderOrder = mesh.renderOrder;
+  mesh.add(o);
+  return o;
+}
 export function vcMat(key = 'wood', opts = {}) {
   if (!MATS[key]) MATS[key] = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0, ...opts });
   return MATS[key];
@@ -62,6 +95,7 @@ export function buildRaft() {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   group.add(mesh);
+  addOutline(mesh, 0.035);
 
   // flag: a cloth strip animated in update()
   const flagGeo = new THREE.PlaneGeometry(1.2, 0.7, 10, 4).translate(0.6, 0, 0);
@@ -137,9 +171,10 @@ export function buildCrew(colorIndex, hat) {
   // smile
   bodyParts.push(P(new THREE.TorusGeometry(0.05, 0.012, 5, 10, Math.PI).rotateY(Math.PI / 2).rotateX(Math.PI).translate(0.31, 0.405, 0), 0x3b1f1f, 0));
   bodyParts.push(...hatParts(hat % 4));
-  const body = new THREE.Mesh(mergeGeometries(bodyParts), vcMat('crew', { roughness: 0.55 }));
+  const body = new THREE.Mesh(mergeGeometries(bodyParts), vcMat('crew', { roughness: 0.5 }));
   body.castShadow = true;
   group.add(body);
+  addOutline(body, 0.022);
 
   const footGeo = P(new THREE.SphereGeometry(0.085, 10, 8).scale(1.4, 0.6, 1), 0xff9f1c, 0.03);
   const feet = [];
@@ -148,6 +183,7 @@ export function buildCrew(colorIndex, hat) {
     f.position.set(0.04, 0.05, sz * 0.13);
     f.castShadow = true;
     group.add(f);
+    addOutline(f, 0.018);
     feet.push(f);
   }
 
@@ -171,6 +207,7 @@ export function buildCrew(colorIndex, hat) {
   horn.rotation.z = 0.35;
   horn.castShadow = true;
   group.add(horn);
+  addOutline(horn, 0.018);
 
   // coloured ring + push arrow on the deck
   const ring = new THREE.Mesh(
@@ -266,6 +303,7 @@ export function buildLog(len) {
   ];
   const m = new THREE.Mesh(mergeGeometries(parts), vcMat('wood'));
   m.castShadow = true;
+  addOutline(m, 0.04);
   return m;
 }
 

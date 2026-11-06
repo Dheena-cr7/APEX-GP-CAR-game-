@@ -13,7 +13,7 @@ import {
   shellGeometry, buildCheckpoint, buildFinish, buildDock, buildRainbow, vcMat,
 } from './Models.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { Puffs, Decals, Ambient } from './Effects.js';
+import { Puffs, Decals, Ambient, Debris } from './Effects.js';
 import { RAFT_HALF } from '../sim/Sim.js';
 
 const lin = (hex) => new THREE.Color(hex);
@@ -146,6 +146,8 @@ export class World {
     scene.add(this.puffs.points);
     this.decals = new Decals(q === 'low' ? 260 : 520, th.foam);
     scene.add(this.decals.mesh);
+    this.debris = new Debris(24);
+    scene.add(this.debris.group);
     this.ambient = null;
     if (this.course.snow) this.ambient = new Ambient('snow', q === 'low' ? 500 : 1200);
     else if (th.extras.includes('dust')) this.ambient = new Ambient('dust', q === 'low' ? 200 : 500);
@@ -314,7 +316,7 @@ export class World {
       const target = Math.atan2(wz, wx);
       c.heading = snap ? target : lerpAngle(c.heading, target, 1 - Math.exp(-dt * 1.6));
     }
-    const dist = 13.5 * c.dist, height = 9.2 * c.dist;
+    const dist = 11 * c.dist, height = 7.4 * c.dist;
     const hx = Math.cos(c.heading), hz = Math.sin(c.heading);
     let cx = rx - hx * dist, cz = rz - hz * dist;
     let cy = ry + height;
@@ -327,7 +329,7 @@ export class World {
     if (snap) c.y = cy;
     c.z = lerp(c.z, cz, k);
     const lk = snap ? 1 : 1 - Math.exp(-dt * 8);
-    c.tx = lerp(c.tx, rx + hx * 4.5, lk);
+    c.tx = lerp(c.tx, rx + hx * 5.5, lk);
     c.ty = lerp(c.ty, ry + 0.6, lk);
     c.tz = lerp(c.tz, rz + hz * 4.5, lk);
     const cam = this.camera;
@@ -393,6 +395,12 @@ export class World {
     raftG.quaternion.copy(qa).multiply(qb);
     raftG.rotateZ(ud0.pitch);
     raftG.rotateX(ud0.roll);
+    // wrecked: the raft is in pieces; respawned: it pops in and blinks while safe
+    const ud1 = raftG.userData;
+    ud1.popT = Math.min(1, (ud1.popT ?? 1) + dt * 3.2);
+    const pop = ud1.popT < 1 ? 1 + Math.sin(ud1.popT * Math.PI) * 0.25 - (1 - ud1.popT) * 0.4 : 1;
+    raftG.scale.setScalar(pop);
+    raftG.visible = sim.wreck <= 0 && !(sim.invuln > 0.25 && Math.floor(t * 9) % 2 === 1);
     raftG.updateMatrixWorld(true);
     animateFlag(raftG.userData.flag, t, 1 + Math.hypot(r.vx, r.vz) * 0.15);
     this.raftShadow.position.set(rx, river.at(river.h, r.s) + 0.02, rz);
@@ -440,7 +448,8 @@ export class World {
       g.rotateZ(-v.lean - (c.blasting ? Math.sin(t * 40) * 0.02 : 0));
       const sq = v.squash;
       const blastWobble = c.blasting ? Math.sin(t * 30) * 0.04 : 0;
-      g.scale.set(1 + sq * 0.25 + blastWobble, 1 - sq * 0.28 - blastWobble, 1 + sq * 0.25 + blastWobble);
+      const S = 1.22;
+      g.scale.set(S * (1 + sq * 0.25 + blastWobble), S * (1 - sq * 0.28 - blastWobble), S * (1 + sq * 0.25 + blastWobble));
       const ud = g.userData;
       ud.feet[0].position.x = 0.04 + Math.sin(stepPh) * 0.09 * walkAmp;
       ud.feet[1].position.x = 0.04 - Math.sin(stepPh) * 0.09 * walkAmp;
@@ -448,7 +457,7 @@ export class World {
       ud.horn.scale.setScalar(1 + c.blast * 0.18 + sq * 0.4);
       // deck marks follow the raft plane
       const marks = ud.marks;
-      marks.visible = !swim;
+      marks.visible = !swim && raftG.visible;
       if (!swim) {
         marks.position.set(x, raftG.position.y + deckY + 0.02 - hop, z);
         marks.rotation.set(0, -face, 0);
@@ -457,7 +466,7 @@ export class World {
         ud.ring.material.opacity = c.slot === localSlot ? 0.95 : 0.6;
       }
       v.tag.visible = showTags;
-      v.tag.position.set(x, y + 1.25, z);
+      v.tag.position.set(x, y + 1.45, z);
       // splash when entering the water
       if (swim && !v.wasSwim) this.splash(x, river.at(river.h, r.s), z, 1);
       v.wasSwim = swim;
@@ -473,6 +482,10 @@ export class World {
 
     const floor = (x, z) => this.terrain.heightAt(x, z) - 0.2;
     this.puffs.update(dt, floor);
+    const waterLevel = (x, z) => this.terrain.waterAt(x, z);
+    this.debris.update(dt, waterLevel, (x, y, z) => {
+      if (Math.random() < 0.5) this.decals.add(x, y + 0.04, z, 0.4, 2, 0.9, 0, 0.7);
+    });
     this.decals.update(dt);
     if (this.ambient) this.ambient.update(dt, this.camera.position);
     if (this.rainbow) this.rainbow.visible = true;
@@ -572,6 +585,33 @@ export class World {
       const a = Math.random() * Math.PI * 2;
       const sp = 1.5 + Math.random() * 2.5;
       this.puffs.spawn(x, y, z, Math.cos(a) * sp, 2 + Math.random() * 3, Math.sin(a) * sp, 0.7, 0.25, 0.05, 1, 0.82, 0.3, 1, 3, 1.5);
+    }
+  }
+
+  /** The raft is wrecked: planks fly, water explodes, the camera shakes. */
+  crash(x, z) {
+    const r = this.sim.raft;
+    const y = this.sim.river.at(this.sim.river.h, r.s);
+    this.debris.burst(r.x, y + 0.3, r.z, r.vx, r.vz, this.quality === 'low' ? 10 : 16);
+    this.splash(r.x, y, r.z, 3);
+    this.impact(x, z, 6, 'log');
+    for (let i = 0; i < 40; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 2 + Math.random() * 5;
+      this.puffs.spawn(r.x, y + 0.5, r.z, Math.cos(a) * sp, 4 + Math.random() * 6, Math.sin(a) * sp, 0.9, 0.3, 0.7, 0.96, 0.99, 1, 0.9, 9.8, 0.5);
+    }
+    this.camShake = 2;
+  }
+
+  /** The raft is back at a checkpoint. */
+  respawned() {
+    this.raft.userData.popT = 0;
+    const r = this.sim.raft;
+    const y = this.sim.river.at(this.sim.river.h, r.s);
+    this.decals.add(r.x, y + 0.05, r.z, 1, 7, 0.9, 0, 0.9);
+    for (let i = 0; i < 30; i++) {
+      const a = Math.random() * Math.PI * 2;
+      this.puffs.spawn(r.x + Math.cos(a) * 2.5, y + 0.6, r.z + Math.sin(a) * 2.5, Math.cos(a) * 2, 1.5 + Math.random() * 2, Math.sin(a) * 2, 0.8, 0.5, 1.4, 1, 0.95, 0.7, 0.8, 0, 2);
     }
   }
 

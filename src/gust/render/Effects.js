@@ -292,3 +292,93 @@ export class Ambient {
     p.needsUpdate = true;
   }
 }
+
+// ---------------------------------------------------------------- wreck debris
+
+/** Planks and log chunks that fly apart when the raft is wrecked, then float. */
+export class Debris {
+  constructor(max = 24) {
+    this.max = max;
+    const plank = new THREE.BoxGeometry(1.5, 0.14, 0.34);
+    const chunk = new THREE.CylinderGeometry(0.27, 0.29, 1.3, 9).rotateZ(Math.PI / 2);
+    const wood = new THREE.MeshStandardMaterial({ color: 0xa06a3a, roughness: 0.8 });
+    const bark = new THREE.MeshStandardMaterial({ color: 0x7a4f2c, roughness: 0.9 });
+    this.planks = new THREE.InstancedMesh(plank, wood, max);
+    this.chunks = new THREE.InstancedMesh(chunk, bark, max);
+    for (const m of [this.planks, this.chunks]) {
+      m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      m.count = 0;
+      m.castShadow = true;
+      m.frustumCulled = false;
+    }
+    this.group = new THREE.Group();
+    this.group.add(this.planks, this.chunks);
+    this.items = [];
+    this._m = new THREE.Matrix4();
+    this._q = new THREE.Quaternion();
+    this._e = new THREE.Euler();
+    this._p = new THREE.Vector3();
+    this._s = new THREE.Vector3();
+  }
+
+  burst(x, y, z, vx, vz, n = 16) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 3 + Math.random() * 6;
+      this.items.push({
+        chunk: i % 3 === 0,
+        x: x + Math.cos(a) * 1.2, y: y + 0.4, z: z + Math.sin(a) * 1.2,
+        vx: vx * 0.4 + Math.cos(a) * sp, vy: 5 + Math.random() * 7, vz: vz * 0.4 + Math.sin(a) * sp,
+        rx: Math.random() * 6, ry: Math.random() * 6, rz: Math.random() * 6,
+        wx: (Math.random() - 0.5) * 14, wy: (Math.random() - 0.5) * 10, wz: (Math.random() - 0.5) * 14,
+        age: 0, life: 3.2 + Math.random(), floating: false,
+      });
+    }
+    while (this.items.length > this.max * 2) this.items.shift();
+  }
+
+  /** waterAt(x, z) -> water height; onSplash(x, y, z) for each piece landing. */
+  update(dt, waterAt, onSplash) {
+    let w = 0;
+    for (const d of this.items) {
+      d.age += dt;
+      if (d.age >= d.life) continue;
+      const wy = waterAt(d.x, d.z);
+      if (!d.floating) {
+        d.vy -= 9.81 * dt;
+        if (d.y + d.vy * dt < wy && d.vy < 0) {
+          d.floating = true;
+          d.vy = 0;
+          d.vx *= 0.3; d.vz *= 0.3;
+          d.wx *= 0.2; d.wy *= 0.2; d.wz *= 0.2;
+          if (onSplash) onSplash(d.x, wy, d.z);
+        }
+      } else {
+        const k = Math.exp(-1.2 * dt);
+        d.vx *= k; d.vz *= k;
+        d.y = wy + 0.05 + Math.sin(d.age * 3 + d.rx) * 0.05;
+        d.rx *= 0.97; d.rz *= 0.97;
+      }
+      d.x += d.vx * dt; d.z += d.vz * dt;
+      if (!d.floating) d.y += d.vy * dt;
+      d.rx += d.wx * dt; d.ry += d.wy * dt; d.rz += d.wz * dt;
+      this.items[w++] = d;
+    }
+    this.items.length = w;
+    let np = 0, nc = 0;
+    for (const d of this.items) {
+      const fade = Math.min(1, (d.life - d.age) / 0.5);
+      this._p.set(d.x, d.y, d.z);
+      this._e.set(d.rx, d.ry, d.rz);
+      this._q.setFromEuler(this._e);
+      this._s.setScalar(Math.max(0.001, fade));
+      this._m.compose(this._p, this._q, this._s);
+      if (d.chunk) { if (nc < this.max) this.chunks.setMatrixAt(nc++, this._m); }
+      else if (np < this.max) this.planks.setMatrixAt(np++, this._m);
+    }
+    this.planks.count = np;
+    this.chunks.count = nc;
+    this.planks.instanceMatrix.needsUpdate = true;
+    this.chunks.instanceMatrix.needsUpdate = true;
+  }
+}

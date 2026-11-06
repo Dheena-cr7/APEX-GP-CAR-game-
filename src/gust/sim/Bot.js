@@ -35,12 +35,20 @@ export class BotCaptain {
         continue;
       }
       const eta = Math.max(0, ds) / Math.max(1.5, speed);
-      circ.length = 0;
-      h.worldCircles(sim.clock + eta, circ);
-      for (const c of circ) {
-        river.project(c.x, c.z, Math.round(h.s), pr);
-        if (Math.abs(pr.s - h.s) > 9) continue;
-        obs.push({ t: pr.t, clear: c.r + 3.0, w: ds < 14 ? 3.2 : 1.8, hw });
+      // moving obstacles: where they could be around the time we arrive
+      const moving = h.type !== 'rock';
+      const times = moving ? [eta - 0.9, eta - 0.3, eta + 0.3, eta + 0.9] : [0];
+      // the nearest obstacles matter most; far ones only nudge the plan
+      const w = ds < 16 ? 4 : ds < 28 ? 1.2 : 0.4;
+      for (const dt of times) {
+        circ.length = 0;
+        h.worldCircles(sim.clock + Math.max(0, dt), circ);
+        for (const c of circ) {
+          river.project(c.x, c.z, Math.round(h.s), pr);
+          if (Math.abs(pr.s - h.s) > 9) continue;
+          // touching an obstacle wrecks the raft: keep a wide berth
+          obs.push({ t: pr.t, clear: c.r + 3.7, w: w / times.length * (moving ? 2 : 1), hw });
+        }
       }
     }
     const shells = [];
@@ -88,20 +96,22 @@ export class BotCaptain {
         if (c < bc) { bc = c; best = u; }
       }
       this.lane = best;
+      // danger ahead even in the best lane: slow down to let it pass
+      this.danger = Math.max(0, bc - 1.2);
     }
     const look = 8 + speed * 1.3;
     const P = river.pointU(Math.min(river.length, r.s + look), this.lane, this._p);
     let dx = P.x - r.x, dz = P.z - r.z;
     const dl = Math.hypot(dx, dz) || 1;
     dx /= dl; dz /= dl;
-    const vTarget = 7.2;
+    const vTarget = this.danger > 1 ? 3.2 : this.danger > 0.2 ? 4.8 : 7.2;
     let ax = (dx * vTarget - r.vx) * 1.6, az = (dz * vTarget - r.vz) * 1.6;
     // lateral correction toward the chosen lane right now
     const hw = river.at(river.hw, r.s);
     const latErr = this.lane * hw - r.t;
     const i = r.hint;
-    ax += river.tz[i] * latErr * 0.5;
-    az += -river.tx[i] * latErr * 0.5;
+    ax += river.tz[i] * latErr * 0.9;
+    az += -river.tx[i] * latErr * 0.9;
     this.need = Math.hypot(ax, az);
     this.dir = Math.atan2(az, ax);
     // spin damping: offset the push line so its torque opposes the spin

@@ -154,48 +154,66 @@ export class Sound {
 
   _gustVoice(slot) {
     const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const out = ctx.createGain();
+    const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    if (pan) out.connect(pan).connect(this.sfx);
+    else out.connect(this.sfx);
+    // wind: filtered noise
     const src = this._noise();
     const bp = ctx.createBiquadFilter();
     bp.type = 'bandpass';
     bp.Q.value = 0.8;
     bp.frequency.value = 650 + slot * 90;
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 2400;
     const ng = ctx.createGain();
     ng.gain.value = 0;
-    // a soft brassy drone under the hiss (the horn)
+    src.connect(bp).connect(ng).connect(out);
+    // toot: two buzzy oscillators, a lip flutter on the volume, a mouthy formant
+    const base = [88, 104, 118, 134][slot % 4];
     const osc = ctx.createOscillator();
     osc.type = 'sawtooth';
-    osc.frequency.value = [98, 110, 123, 131][slot % 4];
-    const vib = ctx.createOscillator();
-    vib.frequency.value = 5.5 + slot * 0.4;
-    const vg = ctx.createGain();
-    vg.gain.value = 3;
-    vib.connect(vg).connect(osc.frequency);
-    const olp = ctx.createBiquadFilter();
-    olp.type = 'lowpass';
-    olp.frequency.value = 520;
-    olp.Q.value = 3;
+    osc.frequency.value = base;
+    const osc2 = ctx.createOscillator();
+    osc2.type = 'square';
+    osc2.frequency.value = base * 1.012;
+    const o2g = ctx.createGain();
+    o2g.gain.value = 0.45;
+    const wob = ctx.createOscillator();
+    wob.frequency.value = 4.5 + slot * 0.7;
+    const wobg = ctx.createGain();
+    wobg.gain.value = base * 0.07;
+    wob.connect(wobg);
+    wobg.connect(osc.frequency);
+    wobg.connect(osc2.frequency);
+    const flut = ctx.createGain();
+    flut.gain.value = 0.55;
+    const lfo = ctx.createOscillator();
+    lfo.type = 'triangle';
+    lfo.frequency.value = 27 + slot * 4;
+    const lfog = ctx.createGain();
+    lfog.gain.value = 0.45;
+    lfo.connect(lfog).connect(flut.gain);
+    const form = ctx.createBiquadFilter();
+    form.type = 'bandpass';
+    form.frequency.value = 480 + slot * 40;
+    form.Q.value = 1.6;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 1500;
     const og = ctx.createGain();
     og.gain.value = 0;
-    const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
-    const out = ctx.createGain();
-    src.connect(bp).connect(lp).connect(ng).connect(out);
-    osc.connect(olp).connect(og).connect(out);
-    if (pan) out.connect(pan).connect(this.sfx);
-    else out.connect(this.sfx);
-    const t = ctx.currentTime;
+    osc.connect(flut);
+    osc2.connect(o2g).connect(flut);
+    flut.connect(form).connect(lp).connect(og).connect(out);
     src.start(t, Math.random());
-    osc.start(t);
-    vib.start(t);
-    const v = { src, osc, vib, ng, og, bp, olp, pan, out, amt: 0 };
+    for (const o of [osc, osc2, wob, lfo]) o.start(t);
+    const v = { src, oscs: [osc, osc2, wob, lfo], osc, osc2, base, ng, og, bp, form, pan, out, amt: 0, on: false };
     this.gusts.set(slot, v);
     return v;
   }
 
-  /** amount 0..1, pan -1..1, distance gain 0..1 */
-  setGust(slot, amount, pan = 0, near = 1) {
+  /** amount 0..1, pan -1..1, distance gain 0..1, gas 0..1 (the toot droops as it runs out) */
+  setGust(slot, amount, pan = 0, near = 1, gas = 1) {
     if (!this.ctx) return;
     let v = this.gusts.get(slot);
     if (!v) {
@@ -204,10 +222,37 @@ export class Sound {
     }
     const t = this.ctx.currentTime;
     const a = Math.max(0, Math.min(1, amount)) * near;
-    v.ng.gain.setTargetAtTime(a * 0.22, t, amount > v.amt ? 0.03 : 0.08);
-    v.og.gain.setTargetAtTime(a * 0.07, t, 0.05);
-    v.bp.frequency.setTargetAtTime(600 + slot * 80 + a * 500, t, 0.08);
-    v.olp.frequency.setTargetAtTime(380 + a * 420, t, 0.08);
+    const silly = this.silly !== false;
+    const f = v.base * (0.82 + 0.32 * gas);
+    const on = amount > 0.3;
+    if (on && !v.on) {
+      // start: a squeaky "pff" that drops into the toot
+      for (const o of [v.osc, v.osc2]) {
+        o.frequency.cancelScheduledValues(t);
+        o.frequency.setValueAtTime(f * 1.9, t);
+        o.frequency.exponentialRampToValueAtTime(f, t + 0.13);
+      }
+    } else if (!on && v.on && silly) {
+      // release: a little rising squeak
+      for (const o of [v.osc, v.osc2]) {
+        o.frequency.cancelScheduledValues(t);
+        o.frequency.setValueAtTime(f, t);
+        o.frequency.exponentialRampToValueAtTime(f * 2.4, t + 0.09);
+      }
+    } else if (on) {
+      v.osc.frequency.setTargetAtTime(f, t, 0.25);
+      v.osc2.frequency.setTargetAtTime(f * 1.012, t, 0.25);
+    }
+    v.on = on;
+    if (silly) {
+      v.og.gain.setTargetAtTime(a * 0.34, t, on ? 0.02 : 0.05);
+      v.ng.gain.setTargetAtTime(a * 0.05, t, 0.05);
+      v.form.frequency.setTargetAtTime(420 + slot * 40 + a * 260, t, 0.08);
+    } else {
+      v.ng.gain.setTargetAtTime(a * 0.22, t, amount > v.amt ? 0.03 : 0.08);
+      v.og.gain.setTargetAtTime(a * 0.03, t, 0.05);
+      v.bp.frequency.setTargetAtTime(600 + slot * 80 + a * 500, t, 0.08);
+    }
     if (v.pan) v.pan.pan.setTargetAtTime(Math.max(-0.9, Math.min(0.9, pan)), t, 0.05);
     v.amt = amount;
   }
@@ -216,8 +261,7 @@ export class Sound {
     for (const [, v] of this.gusts) {
       try {
         v.src.stop();
-        v.osc.stop();
-        v.vib.stop();
+        for (const o of v.oscs) o.stop();
       } catch {
         /* already stopped */
       }
@@ -269,10 +313,40 @@ export class Sound {
     const p = o.power ?? 1;
     switch (name) {
       case 'puff':
-        this._burst('lowpass', 2600, 260, 0.42, 0.55, 0.9);
-        this._tone('sine', 120, 42, 0.28, 0.5);
-        this._tone('square', 240, 110, 0.12, 0.05);
+        if (this.silly !== false) {
+          this._braap(t, 150 + (o.slot || 0) * 12);
+        } else {
+          this._burst('lowpass', 2600, 260, 0.42, 0.55, 0.9);
+          this._tone('sine', 120, 42, 0.28, 0.5);
+          this._tone('square', 240, 110, 0.12, 0.05);
+        }
         break;
+      case 'crash': {
+        // wood crunch, splintering clicks, a thump, a cartoon boing and a splash
+        this._burst('bandpass', 900, 160, 0.45, 0.9, 0.9);
+        for (let i = 0; i < 7; i++) this._burst('bandpass', 1800 + Math.random() * 1600, 900, 0.05, 0.35, 3, t + Math.random() * 0.25);
+        this._tone('sine', 120, 38, 0.45, 0.8);
+        const ctx = this.ctx;
+        const b = ctx.createOscillator();
+        b.type = 'sine';
+        b.frequency.setValueAtTime(330, t + 0.12);
+        b.frequency.exponentialRampToValueAtTime(95, t + 0.75);
+        const bv = ctx.createOscillator();
+        bv.frequency.value = 17;
+        const bvg = ctx.createGain();
+        bvg.gain.value = 40;
+        bv.connect(bvg).connect(b.frequency);
+        const bg = ctx.createGain();
+        this._env(bg, t + 0.12, 0.01, 0.32, 0.62);
+        b.connect(bg).connect(this.sfx);
+        b.start(t + 0.12);
+        bv.start(t + 0.12);
+        b.stop(t + 0.85);
+        bv.stop(t + 0.85);
+        setTimeout(() => this.play('splash', { power: 2.5 }), 260);
+        break;
+      }
+
       case 'impact': {
         const g = Math.min(1, 0.25 + p * 0.12);
         this._tone('sine', 150, 55, 0.22, 0.6 * g);
@@ -360,8 +434,9 @@ export class Sound {
         this._tone('sine', 220, 80, 0.35, 0.12);
         break;
       case 'respawn':
-        this._burst('bandpass', 300, 2400, 0.5, 0.3, 0.8);
-        this._tone('sine', 300, 900, 0.4, 0.1);
+        this._tone('sine', 380, 1150, 0.09, 0.3);
+        [84, 88, 91].forEach((n, i) => this._tone('triangle', midi(n), midi(n), 0.22, 0.1, t + 0.08 + i * 0.06));
+        this._burst('bandpass', 400, 2600, 0.35, 0.18, 0.8);
         break;
       case 'click':
         this._tone('triangle', 880, 660, 0.06, 0.12);
@@ -378,6 +453,46 @@ export class Sound {
       default:
         break;
     }
+  }
+
+  /** A big descending "BRAAAP" with a squeaky end. */
+  _braap(t, f0) {
+    const ctx = this.ctx;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.55, t + 0.02);
+    g.gain.setValueAtTime(0.5, t + 0.35);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.62);
+    const flut = ctx.createGain();
+    flut.gain.value = 0.5;
+    const lfo = ctx.createOscillator();
+    lfo.type = 'square';
+    lfo.frequency.setValueAtTime(34, t);
+    lfo.frequency.linearRampToValueAtTime(22, t + 0.6);
+    const lg = ctx.createGain();
+    lg.gain.value = 0.5;
+    lfo.connect(lg).connect(flut.gain);
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.Q.value = 1.4;
+    f.frequency.setValueAtTime(950, t);
+    f.frequency.exponentialRampToValueAtTime(320, t + 0.6);
+    const oscs = [];
+    for (const [type, mul] of [['sawtooth', 1], ['square', 1.015], ['sawtooth', 0.5]]) {
+      const o = ctx.createOscillator();
+      o.type = type;
+      o.frequency.setValueAtTime(f0 * mul, t);
+      o.frequency.exponentialRampToValueAtTime(f0 * mul * 0.34, t + 0.6);
+      o.connect(flut);
+      oscs.push(o);
+    }
+    flut.connect(f).connect(g).connect(this.sfx);
+    for (const o of [...oscs, lfo]) {
+      o.start(t);
+      o.stop(t + 0.7);
+    }
+    this._burst('lowpass', 1400, 200, 0.4, 0.25, 0.8, t);
+    this._tone('sine', 520, 980, 0.07, 0.08, t + 0.6);
   }
 
   // ------------------------------------------------------------ music

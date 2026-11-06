@@ -15,6 +15,7 @@ const DEFAULTS = () => ({
     quality: 'auto',
     shake: true,
     helpers: true,
+    silly: true,
     bots: 1,
   },
 });
@@ -58,6 +59,7 @@ export class Save {
     D.settings.quality = ['auto', 'low', 'medium', 'high'].includes(s.quality) ? s.quality : 'auto';
     D.settings.shake = s.shake !== false;
     D.settings.helpers = s.helpers !== false;
+    D.settings.silly = s.silly !== false;
     D.settings.bots = num(s.bots, 0, 3, 1) | 0;
   }
 

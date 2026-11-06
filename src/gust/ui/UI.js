@@ -518,7 +518,7 @@ export class UI {
       'Hard hits can throw sailors overboard. Swim back to the raft!',
       'Your gust meter refills when you stop blasting for a moment.',
       'Two sailors on opposite corners pushing the same way go dead straight.',
-      'Stuck? Press R to go back to the last checkpoint (+3 s).',
+      'One touch on a rock or log wrecks the raft. Respawns are instant!',
       'Waterfalls launch the raft. Hold on tight!',
     ];
     const tip = tips[Math.floor(Math.random() * tips.length)];
@@ -559,7 +559,10 @@ export class UI {
           <div class="gc-progress"><div class="gc-progress-fill"></div>${ticks}<i class="gc-flag"></i><i class="gc-raftdot"></i></div>
         </div>
         <div class="gc-hud-timer"><span class="gc-time">0:00.0</span><span class="gc-target"></span></div>
-        <div class="gc-hud-shells"><span class="gc-shell-icon" aria-hidden="true"></span><span class="gc-shell-n">0</span><span class="gc-shell-of">/${sim.shells.length}</span></div>
+        <div class="gc-hud-right">
+          <div class="gc-hud-shells"><span class="gc-shell-icon" aria-hidden="true"></span><span class="gc-shell-n">0</span><span class="gc-shell-of">/${sim.shells.length}</span></div>
+          <div class="gc-hud-wrecks" title="Wrecks"><span class="gc-wreck-icon" aria-hidden="true"></span><span class="gc-wreck-n">0</span></div>
+        </div>
       </div>
       <div class="gc-hud-crew"></div>
       <div class="gc-hud-hint" hidden></div>
@@ -572,6 +575,7 @@ export class UI {
       time: this.hudEl.querySelector('.gc-time'),
       target: this.hudEl.querySelector('.gc-target'),
       shells: this.hudEl.querySelector('.gc-shell-n'),
+      wrecks: this.hudEl.querySelector('.gc-wreck-n'),
       crew: this.hudEl.querySelector('.gc-hud-crew'),
       hint: this.hudEl.querySelector('.gc-hud-hint'),
       net: this.hudEl.querySelector('.gc-hud-net'),
@@ -610,6 +614,7 @@ export class UI {
     this._set('fill', h.fill, pct, 'width');
     this._set('dot', h.dot, pct, 'left');
     this._set('shells', h.shells, String(sim.shellCount));
+    this._set('wrecks', h.wrecks, String(sim.crashes));
     // crew cards
     const key = sim.crew.map((c) => `${c.slot}:${c.name}:${c.bot}`).join('|');
     if (key !== h.crewKey) {
@@ -635,8 +640,10 @@ export class UI {
     if (sim.phase === 'ready') hint = race.role === 'client' || race.role === 'host' ? 'Waiting for the whole crew to load…' : '';
     else if (sim.phase === 'run') {
       const me = sim.crewBySlot(race.localSlot);
-      if (me && me.mode === 'swim') hint = 'Overboard! Swim back to the raft.';
-      else if (sim.stuck > 3.5) hint = 'Stuck? Press <kbd>R</kbd> to go back to the last checkpoint (+3 s)';
+      if (sim.wreck > 0) hint = 'Wrecked! Back to the last checkpoint…';
+      else if (me && me.mode === 'swim') hint = 'Overboard! Swim back to the raft.';
+      else if (sim.invuln > 0.3 && sim.crashes > 0 && sim.raceTime < 200) hint = 'Don’t touch rocks, logs or mill wheels: one bump and the raft breaks!';
+      else if (sim.stuck > 3.5) hint = 'Stuck? Press <kbd>R</kbd> to go back to the last checkpoint';
       else if (race.course.id === 'lagoon' && race.role !== 'attract') {
         const s = sim.raft.s;
         if (s < 45) hint = race.game.touch ? 'Hold <b>BLAST</b>: the raft moves the way your sailor faces' : 'Hold <kbd>Space</kbd> or click to blast. The raft moves the way you face (aim with the mouse)';
@@ -688,7 +695,7 @@ export class UI {
         <div class="gc-menu">
           <button class="gc-btn gc-btn-primary" data-act="resume" data-autofocus>Resume</button>
           ${canRestart ? '<button class="gc-btn" data-act="restart">Restart river</button>' : ''}
-          <button class="gc-btn" data-act="respawn">Back to checkpoint (+3 s)</button>
+          <button class="gc-btn" data-act="respawn">Back to checkpoint</button>
           <button class="gc-btn gc-btn-ghost" data-act="howto">How to play</button>
           <button class="gc-btn gc-btn-ghost" data-act="settings">Settings</button>
           <button class="gc-btn gc-btn-ghost" data-act="quit">${online ? 'Leave room' : 'Quit to menu'}</button>
@@ -717,8 +724,8 @@ export class UI {
         <div class="gc-results-time">${fmtTime(r.time)}${rec && rec.newBest ? '<span class="gc-ribbon">New best!</span>' : ''}</div>
         <div class="gc-stats">
           <div><b>${r.shells}/${r.maxShells}</b><span>Shells</span></div>
+          <div><b>${r.wrecks ?? 0}</b><span>Wrecks</span></div>
           <div><b>${r.knocks}</b><span>Overboard</span></div>
-          <div><b>${r.respawns}</b><span>Resets</span></div>
         </div>
         <ul class="gc-targets">
           <li class="${r.time <= m.gold ? 'is-hit' : ''}">${medalDot('gold')} ${fmtTime(m.gold)}</li>
@@ -781,6 +788,7 @@ export class UI {
           </select></label>
         <label class="gc-check"><input type="checkbox" data-shake ${s.shake ? 'checked' : ''}/> <span>Camera shake</span></label>
         <label class="gc-check"><input type="checkbox" data-helpers ${s.helpers ? 'checked' : ''}/> <span>Push arrows under sailors</span></label>
+        <label class="gc-check"><input type="checkbox" data-silly ${s.silly !== false ? 'checked' : ''}/> <span>Silly toot sounds (off = wind)</span></label>
       </div>
       <p class="gc-note">Graphics changes apply from the next river.</p>
       <div class="gc-menu gc-menu-row"><button class="gc-btn gc-btn-primary" data-act="close" data-autofocus>Done</button></div>`);
@@ -795,6 +803,7 @@ export class UI {
     el.querySelector('[data-quality]').addEventListener('change', (e) => { s.quality = e.target.value; g.save.write(); g.applyQualitySetting(); });
     el.querySelector('[data-shake]').addEventListener('change', (e) => { s.shake = e.target.checked; g.save.write(); });
     el.querySelector('[data-helpers]').addEventListener('change', (e) => { s.helpers = e.target.checked; g.save.write(); });
+    el.querySelector('[data-silly]').addEventListener('change', (e) => { s.silly = e.target.checked; g.save.write(); g.applyVolumes(); g.sound.play('puff'); });
     this._on(el, 'close', () => this.closeModal());
   }
 
@@ -814,7 +823,8 @@ export class UI {
           <li><b>Blast</b> your gust horn and the raft is pushed the way your sailor faces.</li>
           <li><b>Where you stand matters.</b> A push through the middle goes straight; a push from the side spins the raft.</li>
           <li>Your <b>gust meter</b> runs down while you blast and refills when you rest. <b>Big Puff</b> is a burst that costs a third of it.</li>
-          <li>Crashes can knock sailors <b>overboard</b>. Swim back, or wait and you'll be hauled aboard.</li>
+          <li><b>Don't touch obstacles!</b> One bump on a rock, log or mill wheel and the raft breaks. Everyone respawns at the last checkpoint (they come every ~60 m).</li>
+          <li>Hard landings can throw sailors <b>overboard</b>. Swim back, or wait and you'll be hauled aboard.</li>
           <li>Grab <b>golden shells</b>, pass every checkpoint and reach the finish arch as fast as you can.</li>
         </ol>
       </div>

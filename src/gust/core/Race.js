@@ -258,6 +258,7 @@ export class Race {
       maxShells: sim.shells.length,
       medal: medalFor(this.course, sim.finishTime),
       respawns: sim.respawns,
+      wrecks: sim.crashes,
       knocks: this.knocks,
       crew: sim.crew.map((c) => ({ slot: c.slot, name: c.name, color: c.color, bot: c.bot })),
     };
@@ -279,7 +280,7 @@ export class Race {
           break;
         case 'puff':
           w.puffBurst(e.slot);
-          if (!attract) snd.play('puff');
+          if (!attract) snd.play('puff', { slot: e.slot });
           break;
         case 'impact':
           w.impact(e.x, e.z, e.power, e.kind);
@@ -298,7 +299,14 @@ export class Race {
           if (!attract) {
             snd.play('knock', { slot: e.slot });
             const c = sim.crewBySlot(e.slot);
-            if (c && !c.bot) ui.toast(`${c.name} went overboard! Swim back to the raft.`, 'warn');
+            if (c && !c.bot && sim.wreck <= 0) ui.toast(`${c.name} went overboard! Swim back to the raft.`, 'warn');
+          }
+          break;
+        case 'crash':
+          w.crash(e.x, e.z);
+          if (!attract) {
+            snd.play('crash');
+            ui.banner('WRECKED!', 'wreck');
           }
           break;
         case 'climb':
@@ -318,6 +326,7 @@ export class Race {
         case 'respawn':
           w.snapCamera();
           w.prev = null;
+          w.respawned();
           if (!attract) snd.play('respawn');
           break;
         case 'empty':
@@ -360,7 +369,7 @@ export class Race {
         v.set(p.x, r.y + 0.5, p.z).project(cam);
         pan = v.x;
       }
-      snd.setGust(c.slot, c.mode === 'deck' && !this.paused ? c.blast : 0, pan, c.local ? 1 : 0.8);
+      snd.setGust(c.slot, c.mode === 'deck' && !this.paused && sim.wreck <= 0 ? c.blast : 0, pan, c.local ? 1 : 0.8, c.gas);
     }
     // river ambience: calm water, rapids, falls nearby
     let roar = 0;
@@ -417,11 +426,20 @@ export class Race {
         sim.events.push({ type: 'shell', i, x: s.x, z: s.z });
       }
     }
+    // wrecks are decided by the host; each peer throws its own sailors in
+    if (typeof m.cn === 'number' && m.cn > sim.crashes) {
+      sim.crashes = m.cn;
+      sim.wreck = Math.max(0.05, m.wk || 0);
+      sim.flingLocalCrew(0, 0);
+      sim.events.push({ type: 'crash', x: sim.raft.x, z: sim.raft.z, kind: 'rock' });
+    }
+    if (typeof m.iv === 'number') sim.invuln = m.iv;
     if (m.rs !== this.lastHostRespawns) {
       const first = this.lastHostRespawns < 0;
       this.lastHostRespawns = m.rs;
       sim.respawns = m.rs;
       if (!first) {
+        sim.wreck = 0;
         for (const c of sim.crew) if (c.local && c.mode === 'swim') sim._rescue(c, false);
         sim.events.push({ type: 'respawn' });
       }
