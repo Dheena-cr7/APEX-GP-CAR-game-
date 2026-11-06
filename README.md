@@ -6,6 +6,15 @@
 - 60 FPS at 1920×1080 on an Intel UHD integrated GPU, 120 draw calls max with a full grid (see [Performance](#performance)).
 - Every phase was gated by an automated, deterministic test run (`npm run verify`). See [Testing](#testing).
 
+## Two games, one site
+
+This repository hosts two browser games that share one deployment and a **Games** side menu (top-left button on every menu screen) for switching between them:
+
+- **APEX GP** at `/` (this README).
+- **GUST CREW** at `/gust/`: a co-op physics raft game for 1–4 players (solo with bots, local co-op, or online). See [docs/GUST_CREW.md](docs/GUST_CREW.md).
+
+The menu lives in `src/shared/GamesMenu.js`; add a new game to its `GAMES` list and as an extra `input` in `vite.config.js`.
+
 ## Quick start
 
 ```bash
@@ -22,6 +31,7 @@ npm run dev        # http://localhost:5173
 | `npm run lint` | oxlint, warnings fail the run |
 | `npm run verify` | Full deterministic test run (headless Chromium, fake clock, autopilot). Screenshots and `report.json` go to `verify-shots/` |
 | `npm run perf` | Builds, serves the build, and drives every circuit on the High and Low presets for 600 real frames each. Results go to `perf-results/perf.json` |
+| `npm run gust:check` | GUST CREW: validates every river and races bot crews down each one (headless) |
 
 `npm run verify` and `npm run perf` need Playwright's Chromium once: `npx playwright install chromium`.
 

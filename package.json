@@ -2,7 +2,7 @@
   "name": "apex-gp",
   "private": true,
   "version": "1.0.0",
-  "description": "APEX GP - low-poly 3D formula racing and drift game for the browser",
+  "description": "APEX GP (low-poly formula racing) and GUST CREW (co-op physics raft game): browser games built with three.js",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -13,7 +13,8 @@
     "preview": "vite preview",
     "lint": "oxlint --deny-warnings src scripts",
     "verify": "node scripts/verify.mjs",
-    "perf": "node scripts/perf.mjs"
+    "perf": "node scripts/perf.mjs",
+    "gust:check": "node scripts/gust-sim-check.mjs"
   },
   "dependencies": {
     "peerjs": "1.5.5",
